@@ -5,30 +5,18 @@ import os
 from typing import Tuple, List, Dict
 from logger import get_logger
 
+# API model IDs are sourced from the registry (single source of truth).
+from .model_registry import get_model_info
+
+_SONNET_MODEL_ID = get_model_info("claude-3.5-sonnet").api_model_id
+_HAIKU_MODEL_ID = get_model_info("claude-3.5-haiku").api_model_id
+_OPUS_MODEL_ID = get_model_info("claude-3-opus").api_model_id
+
 
 def calculate_cost(response, model_name):
-    """Calculate the cost of an Anthropic Claude API call."""
-    usage = response.usage
-    input_tokens = usage.input_tokens
-    output_tokens = usage.output_tokens
-
-    # Updated prices as of September 2025 (per 1K tokens)
-    prices = {
-        "claude-3-5-sonnet-20241022": {"input": 0.003, "output": 0.015},
-        "claude-3-5-haiku-20241022": {"input": 0.001, "output": 0.005},
-        "claude-3-opus-20240229": {"input": 0.015, "output": 0.075},
-        "claude-3-sonnet-20240229": {"input": 0.003, "output": 0.015},
-        "claude-3-haiku-20240307": {"input": 0.00025, "output": 0.00125},
-    }
-
-    if model_name not in prices:
-        return 0
-
-    cost = (
-        input_tokens * prices[model_name]["input"] / 1000
-        + output_tokens * prices[model_name]["output"] / 1000
-    )
-    return cost
+    """Calculate the cost of an Anthropic Claude API call from the unified registry."""
+    from .cost_calculator import calculate_cost_anthropic
+    return calculate_cost_anthropic(response, model_name)
 
 
 def claude_3_5_sonnet(messages: List[Dict], temperature: float = 0.3) -> Tuple[str, float]:
@@ -68,7 +56,7 @@ def claude_3_5_sonnet(messages: List[Dict], temperature: float = 0.3) -> Tuple[s
             
             # Create the API call
             kwargs = {
-                "model": "claude-3-5-sonnet-20241022",
+                "model": _SONNET_MODEL_ID,
                 "messages": user_messages,
                 "temperature": temperature,
                 "max_tokens": 4096,
@@ -80,11 +68,11 @@ def claude_3_5_sonnet(messages: List[Dict], temperature: float = 0.3) -> Tuple[s
             
             response = client.messages.create(**kwargs)
             
-            # Calculate cost
-            cost = calculate_cost(response, "claude-3-5-sonnet-20241022")
+            # Calculate cost (logical model name — registry key)
+            cost = calculate_cost(response, "claude-3.5-sonnet")
             if logger:
                 logger.info(f"LLM call succeeded (attempt {attempt + 1}/{max_retries})")
-                logger.llm_call("claude-3-5-sonnet", cost, response.usage.input_tokens + response.usage.output_tokens)
+                logger.llm_call("claude-3.5-sonnet", cost, response.usage.input_tokens + response.usage.output_tokens)
             else:
                 print(f"[llm] LLM call succeeded (attempt {attempt + 1}/{max_retries})")
 
@@ -165,7 +153,7 @@ def claude_3_5_haiku(messages: List[Dict], temperature: float = 0.3) -> Tuple[st
             
             # Create the API call
             kwargs = {
-                "model": "claude-3-5-haiku-20241022",
+                "model": _HAIKU_MODEL_ID,
                 "messages": user_messages,
                 "temperature": temperature,
                 "max_tokens": 4096,
@@ -177,11 +165,11 @@ def claude_3_5_haiku(messages: List[Dict], temperature: float = 0.3) -> Tuple[st
             
             response = client.messages.create(**kwargs)
             
-            # Calculate cost
-            cost = calculate_cost(response, "claude-3-5-haiku-20241022")
+            # Calculate cost (logical model name — registry key)
+            cost = calculate_cost(response, "claude-3.5-haiku")
             if logger:
                 logger.info(f"LLM call succeeded (attempt {attempt + 1}/{max_retries})")
-                logger.llm_call("claude-3-5-haiku", cost, response.usage.input_tokens + response.usage.output_tokens)
+                logger.llm_call("claude-3.5-haiku", cost, response.usage.input_tokens + response.usage.output_tokens)
             else:
                 print(f"[llm] LLM call succeeded (attempt {attempt + 1}/{max_retries})")
 
@@ -262,7 +250,7 @@ def claude_3_opus(messages: List[Dict], temperature: float = 0.3) -> Tuple[str, 
             
             # Create the API call
             kwargs = {
-                "model": "claude-3-opus-20240229",
+                "model": _OPUS_MODEL_ID,
                 "messages": user_messages,
                 "temperature": temperature,
                 "max_tokens": 4096,
@@ -274,8 +262,8 @@ def claude_3_opus(messages: List[Dict], temperature: float = 0.3) -> Tuple[str, 
             
             response = client.messages.create(**kwargs)
             
-            # Calculate cost
-            cost = calculate_cost(response, "claude-3-opus-20240229")
+            # Calculate cost (logical model name — registry key)
+            cost = calculate_cost(response, "claude-3-opus")
             if logger:
                 logger.info(f"LLM call succeeded (attempt {attempt + 1}/{max_retries})")
                 logger.llm_call("claude-3-opus", cost, response.usage.input_tokens + response.usage.output_tokens)

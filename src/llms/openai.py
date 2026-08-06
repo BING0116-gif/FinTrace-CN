@@ -7,30 +7,9 @@ from logger import get_logger
 
 
 def calculate_cost(response, model_name):
-    """Calculate the cost of an OpenAI API call."""
-    usage = response.usage
-    prompt_tokens = usage.prompt_tokens
-    completion_tokens = usage.completion_tokens
-
-    # Prices per 1K tokens.
-    prices = {
-        "gpt-4o-mini": {"prompt": 0.000150, "completion": 0.000600},
-        "gpt-4o": {"prompt": 0.005, "completion": 0.015},
-        "gpt-4": {"prompt": 0.03, "completion": 0.06},
-        "gpt-3.5-turbo": {"prompt": 0.0005, "completion": 0.0015},
-        # gpt-5.4-mini (approx; used for lightweight cost logging only).
-        "gpt-5.4-mini": {"prompt": 0.00025, "completion": 0.00200},
-        "gpt-5-mini": {"prompt": 0.00025, "completion": 0.00200},
-    }
-
-    if model_name not in prices:
-        return 0
-
-    cost = (
-        prompt_tokens * prices[model_name]["prompt"] / 1000
-        + completion_tokens * prices[model_name]["completion"] / 1000
-    )
-    return cost
+    """Calculate the cost of an OpenAI API call from the unified registry."""
+    from .cost_calculator import calculate_cost_openai
+    return calculate_cost_openai(response, model_name)
 
 
 def _call_openai_model(model_name: str, messages: List[Dict], temperature: float = 0.3) -> Tuple[str, float]:

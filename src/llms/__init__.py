@@ -32,6 +32,9 @@ from .claude import (
     calculate_cost as calculate_claude_cost
 )
 
+# OpenAI-compatible providers (DeepSeek, etc.)
+from .openai_compatible import deepseek_v4_flash, deepseek_v4_pro
+
 # Configuration and utilities
 from .config import (
     init_llm,
@@ -56,6 +59,10 @@ __all__ = [
     'claude_3_opus',
     'calculate_claude_cost',
     
+    # DeepSeek (OpenAI-compatible)
+    'deepseek_v4_flash',
+    'deepseek_v4_pro',
+
     # Configuration
     'init_llm',
     'get_llm',
