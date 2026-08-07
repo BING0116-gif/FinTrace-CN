@@ -842,8 +842,10 @@ Examples:
     parser.add_argument("--query", help="Override default search query for news articles")
         
     # LLM selection parameters
-    parser.add_argument("--llm", choices=["gpt-4o-mini", "claude-3.5-sonnet", "claude-3.5-haiku", "claude-3-opus"], 
-                       default="gpt-4o-mini", help="LLM model to use for analysis")
+    # --llm choices are read dynamically from MODEL_REGISTRY (single source of
+    # truth) so new models appear automatically without editing this list.
+    parser.add_argument("--llm", choices=list_models(),
+                       default="deepseek-v4-flash", help="LLM model to use (default: deepseek-v4-flash)")
     parser.add_argument("--list-llms", action="store_true", help="List available LLM models and exit")
     
     args = parser.parse_args()
@@ -861,7 +863,7 @@ Examples:
                 print(f"  ❌ {model} (API key missing)")
         
         if not available_models:
-            print("\nNo models available. Set OPENAI_API_KEY or ANTHROPIC_API_KEY environment variables.")
+            print("\nNo models available. Set one of OPENAI_API_KEY, ANTHROPIC_API_KEY, or DEEPSEEK_API_KEY environment variables.")
         
         return 0
     
@@ -937,7 +939,7 @@ Examples:
                 # The generalizable chat agent uses a stronger model for reasoning +
                 # tool selection (overridable via CHAT_MODEL). This governs both the
                 # sync and async providers for the chat path.
-                chat_model = os.getenv("CHAT_MODEL", "gpt-5.4-mini").strip()
+                chat_model = os.getenv("CHAT_MODEL", "deepseek-v4-flash").strip()
                 try:
                     init_llm(chat_model)
                 except Exception as _e:

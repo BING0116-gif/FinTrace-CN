@@ -338,8 +338,8 @@ Because the agent decides scope, most conversational questions — a price check
 ### Prerequisites
 
 - Python 3.11
-- API keys: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `SERPAPI_API_KEY`
-- Optional: `MONGO_URI` + `MONGO_DB` (article cache + session memory), `FRED_API_KEY` (free; enables `get_macro`), `CHAT_MODEL` (defaults to `gpt-5.4-mini`)
+- API keys: `DEEPSEEK_API_KEY` (the default model is `deepseek-v4-flash`), or `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` to use those providers; `SERPAPI_API_KEY` for news scraping
+- Optional: `MONGO_URI` + `MONGO_DB` (article cache + session memory), `FRED_API_KEY` (free; enables `get_macro`), `CHAT_MODEL` (defaults to `deepseek-v4-flash`)
 
 ### Installation
 
@@ -348,8 +348,8 @@ git clone https://github.com/Agentic-Analyst/stock-analyst.git
 cd stock-analyst
 pip install -r requirements.txt
 cp .env.example .env
-# Set: OPENAI_API_KEY, ANTHROPIC_API_KEY, SERPAPI_API_KEY
-# Optional: MONGO_URI, MONGO_DB, FRED_API_KEY, CHAT_MODEL
+# Set: DEEPSEEK_API_KEY (default), or OPENAI_API_KEY / ANTHROPIC_API_KEY; SERPAPI_API_KEY for news
+# Optional: DEEPSEEK_BASE_URL, MONGO_URI, MONGO_DB, FRED_API_KEY, CHAT_MODEL
 ```
 
 ---
@@ -394,6 +394,30 @@ python main.py --ticker AAPL --email you@example.com --timestamp 20250101_120000
 python main.py --list-llms                         # list available models
 CHAT_MODEL=claude-3.5-sonnet python main.py ...     # override the chat model
 ```
+
+### DeepSeek quick-start
+
+DeepSeek (`deepseek-v4-flash`) is the **default** model — fast and low-cost. To use it:
+
+```bash
+cp .env.example .env
+# Set in .env: DEEPSEEK_API_KEY=sk-...
+python main.py --list-llms                         # verify deepseek-v4-flash shows ✅
+python main.py --email you@example.com --timestamp 20250101_120000 \
+  --pipeline chat --user-prompt "Analyze NVDA comprehensively"
+```
+
+The premium DeepSeek tier is available with an explicit `--llm`:
+
+```bash
+python main.py --llm deepseek-v4-pro --email you@example.com --timestamp 20250101_120000 \
+  --pipeline chat --user-prompt "Analyze NVDA comprehensively"
+```
+
+> **Note (v1):** DeepSeek thinking/reasoning mode is **not** supported in this
+> version. Every DeepSeek request explicitly sends `thinking: disabled`, and
+> setting `DEEPSEEK_THINKING_ENABLED=true` in `.env` raises an error. OpenAI
+> and Anthropic models remain fully supported.
 
 ### Output structure
 
@@ -486,4 +510,9 @@ Issues and pull requests welcome. The codebase is organized so that tools (`src/
 
 ## License
 
-Proprietary — all rights reserved; see [LICENSE](LICENSE). The source is available to read and evaluate. Any use, copying, modification, distribution, or commercial exploitation requires written permission from VYNN AI (zanwen.fu@duke.edu). Contributions via pull request are welcome and are assigned to VYNN AI under the LICENSE terms.
+Apache License 2.0 — see [LICENSE](LICENSE). This fork (FinTrace-CN) restores
+the Apache 2.0 license from the upstream fork base. Upstream
+(`Agentic-Analyst/stock-analyst`) has since relicensed to PolyForm
+Noncommercial; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for the
+full license history, upstream attribution, and third-party dependency
+licenses.
