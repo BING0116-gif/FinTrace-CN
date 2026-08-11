@@ -25,5 +25,9 @@ class UnsupportedSymbolError(ProviderError):
     """The provider cannot serve the requested canonical A-share symbol."""
 
 
+class TimeoutError(ProviderError):
+    """The provider did not respond within the allowed time."""
+
+
 class SchemaChangedError(ProviderError):
     """The upstream response no longer satisfies the expected field contract."""
