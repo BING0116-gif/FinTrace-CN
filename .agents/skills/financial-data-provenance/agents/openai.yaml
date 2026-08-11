@@ -1,0 +1,4 @@
+interface:
+  display_name: "Financial Data Provenance"
+  short_description: "Verify sources, calculations, and degraded data paths."
+  default_prompt: "Use $financial-data-provenance to change a financial data source safely."

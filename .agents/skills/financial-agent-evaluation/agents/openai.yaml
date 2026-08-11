@@ -1,0 +1,4 @@
+interface:
+  display_name: "Financial Agent Evaluation"
+  short_description: "Build reproducible offline financial agent evaluations."
+  default_prompt: "Use $financial-agent-evaluation to add or run a financial-agent evaluation."

@@ -1,0 +1,37 @@
+{
+  "snapshot_id": "600519.SH_20260810_tushare_v1",
+  "research_as_of": "2026-08-10T23:00:00+08:00",
+  "symbol": "600519.SH",
+  "validation": {
+    "valid": true,
+    "errors": [],
+    "ledger_valid": true
+  },
+  "report_path": "C:\\Users\\HUAWEI\\Desktop\\Agentic-Analyst\\stock-analyst\\output\\600519.SH_research_report.md",
+  "excel_path": "C:\\Users\\HUAWEI\\Desktop\\Agentic-Analyst\\stock-analyst\\output\\600519.SH_cn_report.xlsx",
+  "key_metrics": {
+    "price": 1348.86,
+    "total_shares": 1252270215.0,
+    "market_cap": 1689137202204.9,
+    "ttm_net_profit": 82715105749.37,
+    "ttm_revenue": 172146396849.52002,
+    "book_equity": 270894035676.27
+  },
+  "peer_valuation": {
+    "peer_count": 5,
+    "multiples": {
+      "PE": {
+        "median": 14.634776470588234,
+        "confidence": "medium"
+      },
+      "PB": {
+        "median": 4.334778461538462,
+        "confidence": "medium"
+      },
+      "PS": {
+        "median": 6.629661176470588,
+        "confidence": "medium"
+      }
+    }
+  }
+}

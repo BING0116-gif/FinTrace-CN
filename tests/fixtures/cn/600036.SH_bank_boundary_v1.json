@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "600036.SH_bank_boundary_illustrative_v1",
+  "provider": "illustrative_fixture",
+  "symbol": "600036.SH",
+  "research_as_of": "2026-08-10T23:00:00+08:00",
+  "fetched_at": "2026-08-10T23:00:00+08:00",
+  "data_quality": "illustrative_test_fixture_not_for_research",
+  "data": {
+    "profile": {
+      "name": "CMB (illustrative bank boundary case)",
+      "currency": "CNY",
+      "industry_standard": "illustrative",
+      "industry_level": "industry",
+      "industry_code": "BANK",
+      "industry_name": "Banking",
+      "entity_type": "financial_institution"
+    },
+    "bars": [{"trade_date": "2026-08-10", "open": 40.0, "high": 41.0, "low": 39.5, "close": 40.5, "volume": 100.0, "amount": 4050.0, "adjustment": "RAW", "trading_status": "NORMAL"}],
+    "statements": [
+      {"statement_type": "income", "fiscal_period": "2025FY", "period_basis": "FY", "published_at": "2026-03-20T00:00:00+08:00", "available_at": "2026-03-20T00:00:00+08:00", "currency": "CNY", "unit": "CNY", "values": {"revenue": 100000000000.0, "net_profit": 50000000000.0}},
+      {"statement_type": "balance", "fiscal_period": "2025FY", "period_basis": "FY", "published_at": "2026-03-20T00:00:00+08:00", "available_at": "2026-03-20T00:00:00+08:00", "currency": "CNY", "unit": "CNY", "values": {"total_shares": 25000000000.0, "book_equity": 300000000000.0}}
+    ]
+  }
+}

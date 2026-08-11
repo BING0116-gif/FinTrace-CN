@@ -1,0 +1,54 @@
+{
+  "schema_version": "1.0.0",
+  "snapshot_id": "600519.SH_illustrative_v1",
+  "provider": "illustrative_fixture",
+  "symbol": "600519.SH",
+  "research_as_of": "2025-04-01T00:00:00+08:00",
+  "fetched_at": "2025-04-01T00:00:00+08:00",
+  "data_quality": "illustrative_test_fixture_not_for_research",
+  "data": {
+    "profile": {
+      "name": "贵州茅台（测试样例）",
+      "currency": "CNY",
+      "industry_standard": "测试分类",
+      "industry_level": "一级",
+      "industry_code": "TEST",
+      "industry_name": "测试行业"
+    },
+    "bars": [
+      {
+        "trade_date": "2025-03-31",
+        "open": 1.0,
+        "high": 1.1,
+        "low": 0.9,
+        "close": 1.0,
+        "volume": 100.0,
+        "amount": 100.0,
+        "adjustment": "RAW",
+        "trading_status": "NORMAL"
+      }
+    ],
+    "statements": [
+      {
+        "statement_type": "income",
+        "fiscal_period": "2024FY",
+        "period_basis": "FY",
+        "published_at": "2025-03-29T00:00:00+08:00",
+        "available_at": "2025-03-29T00:00:00+08:00",
+        "currency": "CNY",
+        "unit": "CNY",
+        "values": {"revenue": 100.0, "net_profit": 50.0}
+      },
+      {
+        "statement_type": "income",
+        "fiscal_period": "2025Q1",
+        "period_basis": "Q1",
+        "published_at": "2025-04-26T00:00:00+08:00",
+        "available_at": "2025-04-26T00:00:00+08:00",
+        "currency": "CNY",
+        "unit": "CNY",
+        "values": {"revenue": 30.0, "net_profit": 12.0}
+      }
+    ]
+  }
+}

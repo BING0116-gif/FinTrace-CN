@@ -44,6 +44,12 @@ from datetime import datetime
 import json
 import time
 
+# The application emits Unicode status symbols and loads UTF-8 resources.
+# Windows terminals may otherwise default to a legacy code page such as GBK.
+for stream in (sys.stdout, sys.stderr):
+    if hasattr(stream, "reconfigure"):
+        stream.reconfigure(encoding="utf-8", errors="replace")
+
 from src.config import MAX_ARTICLES
 
 # Add src directory to path for imports
@@ -69,6 +75,26 @@ import yfinance as yf
 from llms.config import init_llm, list_models, list_available_models
 from dotenv import load_dotenv
 load_dotenv()
+
+
+def _configure_local_runtime() -> None:
+    """Keep third-party runtime caches inside the writable project data dir."""
+    configured_cache = os.getenv("FINTRACE_CACHE_DIR", "").strip()
+    cache_root = (
+        pathlib.Path(configured_cache)
+        if configured_cache
+        else pathlib.Path(__file__).parent / "data" / ".cache"
+    )
+    yfinance_cache = cache_root / "yfinance"
+    yfinance_cache.mkdir(parents=True, exist_ok=True)
+
+    # yfinance otherwise writes its SQLite timezone/cookie cache below the
+    # current user's profile.  That location is often read-only in containers,
+    # CI, managed IDEs, and sandboxed desktop sessions.
+    yf.set_tz_cache_location(str(yfinance_cache))
+
+
+_configure_local_runtime()
 import traceback
 import asyncio
 

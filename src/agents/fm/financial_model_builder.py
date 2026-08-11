@@ -82,6 +82,8 @@ from .tabs.tab_valuation_perpetual_growth_dcf import ValuationPerpetualGrowthDCF
 from .tabs.tab_valuation_exit_multiple_dcf import ValuationExitMultipleDCFBuilder
 from .tabs.tab_sensitivity import SensitivityTabBuilder
 from .tabs.tab_summary import SummaryTabBuilder
+from .tabs.tab_peer_valuation import PeerValuationTabBuilder, PeerValuationData
+from .tabs.tab_validation import ValidationTabBuilder, ValidationData
 from .formula_evaluator import FormulaEvaluator
 
 
@@ -134,6 +136,8 @@ class FinancialModelBuilder:
         self.exit_multiple_dcf_builder: Optional[ValuationExitMultipleDCFBuilder] = None
         self.sensitivity_builder: Optional[SensitivityTabBuilder] = None
         self.summary_builder: Optional[SummaryTabBuilder] = None
+        self.peer_valuation_builder: Optional[PeerValuationTabBuilder] = None
+        self.validation_builder: Optional[ValidationTabBuilder] = None
         
         # Formula evaluator (initialized after workbook is built)
         self.formula_evaluator: Optional[FormulaEvaluator] = None
@@ -144,6 +148,25 @@ class FinancialModelBuilder:
     def _log(self, level: str, message: str):
         """Log message using logger if available, otherwise print."""
         getattr(self.logger, level)(message)
+
+    def set_cn_valuation_data(
+        self,
+        *,
+        peer_data: PeerValuationData,
+        validation_data: ValidationData,
+    ) -> None:
+        """
+        Attach FinTrace-CN A-share peer-valuation and validation data.
+
+        When called before :meth:`build_model`, two additional tabs are appended:
+        *Peer Valuation* (position 10) and *Validation* (position 11).
+
+        Args:
+            peer_data: Snapshot of :func:`src.cn.peer_workflow.value_with_peers` results.
+            validation_data: Snapshot of :class:`src.cn.evidence.EvidenceLedger` validation.
+        """
+        self.peer_valuation_builder = PeerValuationTabBuilder(peer_data)
+        self.validation_builder = ValidationTabBuilder(validation_data)
 
     def load_json_file(self, json_path: Path | str) -> None:
         """
@@ -227,44 +250,57 @@ class FinancialModelBuilder:
         self.exit_multiple_dcf_builder = ValuationExitMultipleDCFBuilder()
         self.sensitivity_builder = SensitivityTabBuilder()
         self.summary_builder = SummaryTabBuilder()
+        # FinTrace-CN A-share tabs (built only when data is supplied via set_cn_valuation_data)
+        self.peer_valuation_builder = None
+        self.validation_builder = None
         
         # Build tabs in sequence
-        self._log("info", "[1/9] Building Raw tab...")
+        self._log("info", "[1/11] Building Raw tab...")
         self.raw_builder.create_tab(self.workbook)
         self._log("info", f"      ✅ Raw tab created ({len(self.raw_builder.data_rows)} rows)")
 
-        self._log("info", "[2/9] Building Keys_Map tab...")
+        self._log("info", "[2/11] Building Keys_Map tab...")
         # Populate Keys_Map from Raw data
         self.keys_map_builder.build_from_raw_data(self.raw_builder.data_rows)
         self.keys_map_builder.create_tab(self.workbook)
         self._log("info", f"      ✅ Keys_Map tab created ({len(self.keys_map_builder.field_mappings)} fields)")
 
-        self._log("info", "[3/9] Building Assumptions tab...")
+        self._log("info", "[3/11] Building Assumptions tab...")
         self.assumptions_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Assumptions tab created (with LLM_Inferred hidden tab)")
-        self._log("info", "[4/9] Building Historical tab...")
+        self._log("info", "[4/11] Building Historical tab...")
         self.historical_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Historical tab created (5 years actuals)")
 
-        self._log("info", "[5/9] Building Projections tab...")
+        self._log("info", "[5/11] Building Projections tab...")
         self.projections_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Projections tab created (FY1-FY5 forecasts)")
 
-        self._log("info", "[6/9] Building Valuation (Perpetual Growth DCF) tab...")
+        self._log("info", "[6/11] Building Valuation (Perpetual Growth DCF) tab...")
         self.perpetual_growth_dcf_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Valuation (DCF) tab created")
 
-        self._log("info", "[7/9] Building Valuation (Exit Multiple DCF) tab...")
+        self._log("info", "[7/11] Building Valuation (Exit Multiple DCF) tab...")
         self.exit_multiple_dcf_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Valuation (Exit Multiple) tab created")
 
-        self._log("info", "[8/9] Building Sensitivity tab...")
+        self._log("info", "[8/11] Building Sensitivity tab...")
         self.sensitivity_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Sensitivity tab created (2-way analysis)")
 
-        self._log("info", "[9/9] Building Summary tab...")
+        self._log("info", "[9/11] Building Summary tab...")
         self.summary_builder.create_tab(self.workbook)
         self._log("info", "      ✅ Summary tab created (34 metrics)")
+
+        # FinTrace-CN A-share tabs (built only when set_cn_valuation_data has been called)
+        if self.peer_valuation_builder is not None:
+            self._log("info", "[10/11] Building Peer Valuation tab...")
+            self.peer_valuation_builder.create_tab(self.workbook)
+            self._log("info", "      ✅ Peer Valuation tab created")
+        if self.validation_builder is not None:
+            self._log("info", "[11/11] Building Validation tab...")
+            self.validation_builder.create_tab(self.workbook)
+            self._log("info", "      ✅ Validation tab created")
 
         # Set Summary as active sheet
         self.workbook.active = self.workbook["Summary"]

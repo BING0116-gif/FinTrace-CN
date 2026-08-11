@@ -388,6 +388,18 @@ python main.py --ticker MSFT --email you@example.com --timestamp 20250101_120000
 python main.py --ticker AAPL --email you@example.com --timestamp 20250101_120000 --pipeline screen-news
 ```
 
+### Offline FinTrace-CN sample report
+
+Generate the traceable Guizhou Moutai sample from the versioned local snapshot;
+this command makes no network, Yahoo, Tushare, or LLM call. The adjacent
+metadata JSON records the snapshot, cutoff, and validator result.
+
+```bash
+python scripts/generate_cn_snapshot_report.py \
+  --snapshot data/snapshots/cn/600519.SH_20260810_tushare_v1.json \
+  --output /tmp/600519.SH_research_report.md
+```
+
 ### Model selection
 
 ```bash

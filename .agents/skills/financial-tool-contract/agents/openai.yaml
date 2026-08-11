@@ -1,0 +1,4 @@
+interface:
+  display_name: "Financial Tool Contract"
+  short_description: "Safely evolve agent tools and provider-neutral contracts."
+  default_prompt: "Use $financial-tool-contract to add or modify a financial agent tool."

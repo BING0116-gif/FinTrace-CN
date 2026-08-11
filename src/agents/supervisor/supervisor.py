@@ -27,7 +27,7 @@ from src.logger import get_logger
 def _load_routing_prompt():
     """Load the workflow routing prompt from prompts folder."""
     prompt_path = Path(__file__).parent.parent.parent.parent / "prompts" / "workflow_routing.md"
-    with open(prompt_path, 'r') as f:
+    with open(prompt_path, 'r', encoding='utf-8') as f:
         content = f.read()
     # Replace format string markers to avoid conflicts with markdown
     content = content.replace("```markdown\n", "").replace("```", "")
@@ -37,7 +37,7 @@ def _load_routing_prompt():
 def _load_completion_summary_prompt():
     """Load the workflow completion summary prompt from prompts folder."""
     prompt_path = Path(__file__).parent.parent.parent.parent / "prompts" / "workflow_completion_summary.md"
-    with open(prompt_path, 'r') as f:
+    with open(prompt_path, 'r', encoding='utf-8') as f:
         return f.read()
 
 
