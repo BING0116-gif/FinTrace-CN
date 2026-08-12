@@ -65,9 +65,15 @@ def main() -> int:
     parser.add_argument("probe_dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--research-as-of", default="2026-08-10T23:00:00+08:00")
+    parser.add_argument("--snapshot-id", default=None, help="Optional immutable snapshot ID.")
     args = parser.parse_args()
 
     profile_row = pd.read_csv(args.probe_dir / "raw_stock_basic.csv").iloc[0]
+    symbol = str(profile_row["ts_code"]).strip().upper()
+    if not symbol or symbol == "NAN":
+        raise SystemExit("raw_stock_basic.csv does not contain a valid ts_code.")
+    date_tag = args.research_as_of[:10].replace("-", "")
+    snapshot_id = args.snapshot_id or f"{symbol}_{date_tag}_tushare_v1"
     daily = pd.read_csv(args.probe_dir / "raw_daily.csv", dtype={"trade_date": "string"})
     bars = [
         {
@@ -85,9 +91,9 @@ def main() -> int:
     )
     payload = {
         "schema_version": "1.0.0",
-        "snapshot_id": "600519.SH_20260810_tushare_v1",
+        "snapshot_id": snapshot_id,
         "provider": "tushare",
-        "symbol": "600519.SH",
+        "symbol": symbol,
         "research_as_of": args.research_as_of,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "data_quality": "provider_normalized_from_cn0_probe",

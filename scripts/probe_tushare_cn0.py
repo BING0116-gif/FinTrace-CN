@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import argparse
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -18,23 +19,33 @@ import tushare as ts
 from dotenv import load_dotenv
 
 
-SYMBOL = "600519.SH"
-START_DATE = "20260701"
-END_DATE = "20260810"
+DEFAULT_SYMBOL = "600519.SH"
+DEFAULT_START_DATE = "20260701"
+DEFAULT_END_DATE = "20260810"
 PROBE_ROOT = Path(__file__).resolve().parents[1] / "data" / "provider_probes" / "cn0"
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(
+        description="Capture one auditable, raw Tushare A-share probe (six calls; no retries)."
+    )
+    parser.add_argument("--symbol", default=DEFAULT_SYMBOL, help="Canonical Tushare symbol, e.g. 000858.SZ")
+    parser.add_argument("--start-date", default=DEFAULT_START_DATE, help="YYYYMMDD")
+    parser.add_argument("--end-date", default=DEFAULT_END_DATE, help="YYYYMMDD")
+    args = parser.parse_args()
+    symbol = args.symbol.strip().upper()
+    if len(args.start_date) != 8 or not args.start_date.isdigit() or len(args.end_date) != 8 or not args.end_date.isdigit():
+        raise SystemExit("--start-date and --end-date must use YYYYMMDD.")
     load_dotenv(Path(__file__).resolve().parents[1] / ".env")
     token = os.getenv("TUSHARE_TOKEN", "").strip()
     if not token:
         raise SystemExit("TUSHARE_TOKEN is not configured in .env")
 
-    output_dir = PROBE_ROOT / f"{SYMBOL}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    output_dir = PROBE_ROOT / f"{symbol}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
     output_dir.mkdir(parents=True, exist_ok=False)
     summary = {
         "provider": "tushare",
-        "symbol": SYMBOL,
+        "symbol": symbol,
         "budgeted_calls": 6,
         "retry_policy": "no_retry_stop_on_first_failure",
         "calls": [],
@@ -44,15 +55,15 @@ def main() -> int:
         (
             "stock_basic",
             lambda: client.stock_basic(
-                ts_code=SYMBOL,
+                ts_code=symbol,
                 fields="ts_code,symbol,name,area,industry,market,list_date",
             ),
         ),
-        ("daily", lambda: client.daily(ts_code=SYMBOL, start_date=START_DATE, end_date=END_DATE)),
-        ("income", lambda: client.income(ts_code=SYMBOL)),
-        ("balancesheet", lambda: client.balancesheet(ts_code=SYMBOL)),
-        ("cashflow", lambda: client.cashflow(ts_code=SYMBOL)),
-        ("fina_indicator", lambda: client.fina_indicator(ts_code=SYMBOL)),
+        ("daily", lambda: client.daily(ts_code=symbol, start_date=args.start_date, end_date=args.end_date)),
+        ("income", lambda: client.income(ts_code=symbol)),
+        ("balancesheet", lambda: client.balancesheet(ts_code=symbol)),
+        ("cashflow", lambda: client.cashflow(ts_code=symbol)),
+        ("fina_indicator", lambda: client.fina_indicator(ts_code=symbol)),
     ]
 
     for endpoint, request in calls:

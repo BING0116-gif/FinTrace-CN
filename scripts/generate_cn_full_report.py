@@ -75,6 +75,12 @@ PEER_CANDIDATES = [
     ),
 ]
 
+# The values above are a dated, report-specific illustrative peer set for
+# Moutai only.  They are not provider facts for another company and must never
+# be reused across industries.  A future multi-company report path must source
+# each peer from a compatible snapshot before it enables valuation output.
+ILLUSTRATIVE_PEER_TARGET = "600519.SH"
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -120,6 +126,12 @@ def generate_report(
     research_as_of: str | None = None,
 ) -> dict:
     """Generate Markdown report + Excel tabs from a local snapshot."""
+    if symbol_text.upper() != ILLUSTRATIVE_PEER_TARGET:
+        raise ValueError(
+            "Peer Valuation output is currently supported only for 600519.SH: "
+            "the bundled peer inputs are dated Moutai-specific illustrations, "
+            "not sourced facts for other companies."
+        )
     # ------------------------------------------------------------------
     # 1. Load snapshot and build Markdown report
     # ------------------------------------------------------------------

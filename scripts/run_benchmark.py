@@ -179,12 +179,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         from src.cn.benchmark import check_regression
         regression = check_regression(summary, baseline.get("summary", baseline))
         if not regression["passed"]:
-            print(f"\n⚠️  REGRESSION DETECTED:")
+            print("\nWARNING: REGRESSION DETECTED:")
             for r in regression["regressions"]:
                 print(f"  {r['metric']}: {r['current']:.3f} vs baseline {r['baseline']:.3f} (allowed drop: {r['allowed_drop']})")
             return 1
 
-    print(f"\n✅  Results written to {output_dir}")
+    print(f"\nOK: Results written to {output_dir}")
     return 0
 
 
