@@ -154,7 +154,11 @@ class EvidenceLedger:
                 except EvidenceError as exc:
                     errors.append(f"invalid_calculation:{record.evidence_id}:{exc}")
                     continue
-                if abs(expected - record.value) > tolerance:
+                # Financial values can be on the order of trillions.  Use a
+                # relative tolerance so harmless IEEE-754 rounding does not
+                # turn an otherwise identical multiplication into a false
+                # validation failure.
+                if abs(expected - record.value) > tolerance * max(1.0, abs(expected)):
                     errors.append(f"calculation_mismatch:{record.evidence_id}")
         return LedgerValidation(valid=not errors, errors=errors)
 

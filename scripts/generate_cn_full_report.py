@@ -31,55 +31,11 @@ from src.cn.report import CnResearchReportBuilder
 from src.cn.symbols import normalize_cn_symbol
 from src.cn.evidence import EvidenceLedger, LedgerValidation
 from src.cn.periods import FinancialPeriodEngine
-from src.cn.valuation import (
-    PeerValuationInput,
-    calculate_multiple,
-    summarize_peer_multiple,
-    implied_price,
-)
+from src.cn.valuation import PeerValuationInput
+from src.cn.peer_workflow import PeerCandidate, value_with_peers
+from src.cn.industries import get_industry_code, is_financial_institution
 from src.agents.fm.tabs.tab_peer_valuation import PeerValuationTabBuilder, PeerValuationData
 from src.agents.fm.tabs.tab_validation import ValidationTabBuilder, ValidationData
-
-
-# ---------------------------------------------------------------------------
-# Realistic peer data for 贵州茅台 (白酒 industry, industry code 150200)
-# These are publicly traded peers with similar market profiles.
-# The data is derived from the snapshot date range (Aug 2026).
-# ---------------------------------------------------------------------------
-
-PEER_CANDIDATES = [
-    PeerValuationInput(
-        symbol="000858.SZ", raw_price=145.20, total_shares=3_881_000_000,
-        net_profit=31_500_000_000, book_equity=130_000_000_000, revenue=85_000_000_000,
-        period_basis="2025Q4_TTM",
-    ),
-    PeerValuationInput(
-        symbol="600809.SH", raw_price=198.50, total_shares=1_220_000_000,
-        net_profit=13_800_000_000, book_equity=45_000_000_000, revenue=35_000_000_000,
-        period_basis="2025Q4_TTM",
-    ),
-    PeerValuationInput(
-        symbol="000568.SZ", raw_price=135.80, total_shares=1_472_000_000,
-        net_profit=14_200_000_000, book_equity=42_000_000_000, revenue=28_000_000_000,
-        period_basis="2025Q4_TTM",
-    ),
-    PeerValuationInput(
-        symbol="002304.SZ", raw_price=82.60, total_shares=1_506_000_000,
-        net_profit=8_500_000_000, book_equity=52_000_000_000, revenue=30_000_000_000,
-        period_basis="2025Q4_TTM",
-    ),
-    PeerValuationInput(
-        symbol="603369.SH", raw_price=42.80, total_shares=1_254_000_000,
-        net_profit=3_800_000_000, book_equity=18_000_000_000, revenue=12_000_000_000,
-        period_basis="2025Q4_TTM",
-    ),
-]
-
-# The values above are a dated, report-specific illustrative peer set for
-# Moutai only.  They are not provider facts for another company and must never
-# be reused across industries.  A future multi-company report path must source
-# each peer from a compatible snapshot before it enables valuation output.
-ILLUSTRATIVE_PEER_TARGET = "600519.SH"
 
 
 # ---------------------------------------------------------------------------
@@ -99,11 +55,20 @@ def _ttm(statements, metric: str) -> float | None:
 
 def _latest_balance_value(statements, metric: str) -> float | None:
     """Get the most recent balance-sheet value for a metric."""
+    latest = _latest_balance_statement(statements)
+    return latest.values.get(metric) if latest else None
+
+
+def _latest_balance_statement(statements):
     balance = [s for s in statements if s.statement_type == "balance"]
-    if not balance:
-        return None
-    latest = max(balance, key=lambda s: s.fiscal_period)
-    return latest.values.get(metric)
+    period_rank = {"Q1": 1, "H1": 2, "9M": 3, "FY": 4}
+    def key(statement):
+        period = statement.fiscal_period
+        for suffix, rank in period_rank.items():
+            if period.endswith(suffix):
+                return int(period[:4]), rank
+        return 0, 0
+    return max(balance, key=key) if balance else None
 
 
 def _latest_income_value(statements, metric: str) -> float | None:
@@ -115,6 +80,54 @@ def _latest_income_value(statements, metric: str) -> float | None:
     return latest.values.get(metric)
 
 
+def _snapshot_candidate(snapshot_path: Path, *, cutoff: str) -> tuple[PeerCandidate, str]:
+    """Create a valuation input entirely from one compatible local snapshot."""
+    provider = SnapshotProvider(snapshot_path)
+    symbol = normalize_cn_symbol(provider._payload["symbol"])
+    statements = provider.get_financial_statements(symbol, research_as_of=cutoff)
+    cutoff_date = cutoff[:10]
+    bars = [item for item in provider.get_daily_bars(symbol) if item.trade_date <= cutoff_date]
+    latest_bar = max(bars, key=lambda item: item.trade_date) if bars else None
+    code = str(symbol).split(".")[0]
+    industry_code = get_industry_code(code)
+    if industry_code is None:
+        raise ValueError(f"No frozen industry classification for {symbol}.")
+    if latest_bar is None:
+        raise ValueError(f"Snapshot has no RAW market bar for {symbol}.")
+    valuation = PeerValuationInput(
+        symbol=str(symbol), raw_price=latest_bar.close,
+        total_shares=_latest_balance_value(statements, "total_shares") or 0.0,
+        net_profit=_ttm(statements, "net_profit"),
+        book_equity=_latest_balance_value(statements, "equity"),
+        revenue=_ttm(statements, "revenue"),
+        period_basis="TTM_SNAPSHOT_AS_OF",
+    )
+    evidence_ids = {"price": f"{provider._payload['snapshot_id']}:close:{latest_bar.trade_date}"}
+    if valuation.total_shares > 0:
+        evidence_ids["shares"] = f"{provider._payload['snapshot_id']}:total_shares"
+    if valuation.net_profit is not None:
+        evidence_ids["profit"] = f"{provider._payload['snapshot_id']}:ttm_net_profit"
+    if valuation.book_equity is not None:
+        evidence_ids["equity"] = f"{provider._payload['snapshot_id']}:equity"
+    if valuation.revenue is not None:
+        evidence_ids["revenue"] = f"{provider._payload['snapshot_id']}:ttm_revenue"
+    profile = provider.get_profile(symbol)
+    return PeerCandidate(valuation, industry_code, evidence_ids, is_financial_institution(code)), (profile.name if profile else str(symbol))
+
+
+def _snapshot_peers(target_path: Path, *, snapshot_dir: Path, cutoff: str) -> tuple[PeerCandidate, str, list[PeerCandidate], dict[str, str]]:
+    target, target_name = _snapshot_candidate(target_path, cutoff=cutoff)
+    candidates: list[PeerCandidate] = []
+    names = {target.valuation.symbol: target_name}
+    for path in sorted(snapshot_dir.glob("*_tushare_v1.json")):
+        if path.resolve() == target_path.resolve():
+            continue
+        candidate, name = _snapshot_candidate(path, cutoff=cutoff)
+        candidates.append(candidate)
+        names[candidate.valuation.symbol] = name
+    return target, target_name, candidates, names
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -124,14 +137,9 @@ def generate_report(
     symbol_text: str,
     output_dir: Path,
     research_as_of: str | None = None,
+    peer_snapshot_dir: Path | None = None,
 ) -> dict:
     """Generate Markdown report + Excel tabs from a local snapshot."""
-    if symbol_text.upper() != ILLUSTRATIVE_PEER_TARGET:
-        raise ValueError(
-            "Peer Valuation output is currently supported only for 600519.SH: "
-            "the bundled peer inputs are dated Moutai-specific illustrations, "
-            "not sourced facts for other companies."
-        )
     # ------------------------------------------------------------------
     # 1. Load snapshot and build Markdown report
     # ------------------------------------------------------------------
@@ -141,21 +149,22 @@ def generate_report(
 
     report = CnResearchReportBuilder(provider).build(symbol, research_as_of=cutoff)
     profile = provider.get_profile(symbol)
-    bars = provider.get_daily_bars(symbol)
+    bars = [item for item in provider.get_daily_bars(symbol) if item.trade_date <= cutoff[:10]]
     statements = provider.get_financial_statements(symbol, research_as_of=cutoff)
 
     # Save Markdown report
     output_dir.mkdir(parents=True, exist_ok=True)
     md_path = output_dir / f"{symbol_text}_research_report.md"
     md_path.write_text(report.markdown, encoding="utf-8")
-    print(f"  ✅ Markdown report saved: {md_path}")
+    print(f"  OK: Markdown report saved: {md_path}")
 
     # ------------------------------------------------------------------
     # 2. Extract key financials from snapshot
     # ------------------------------------------------------------------
     latest_bar = max(bars, key=lambda b: b.trade_date) if bars else None
     price = latest_bar.close if latest_bar else 0.0
-    total_shares = _latest_balance_value(statements, "total_shares") or 0.0
+    latest_balance = _latest_balance_statement(statements)
+    total_shares = (latest_balance.values.get("total_shares") if latest_balance else None) or 0.0
     market_cap = price * total_shares
 
     # TTM financials
@@ -163,14 +172,14 @@ def generate_report(
     ttm_revenue = _ttm(statements, "revenue")
 
     # Book equity (latest balance sheet equity)
-    book_equity = _latest_balance_value(statements, "equity")
+    book_equity = latest_balance.values.get("equity") if latest_balance else None
 
     # Industry code from profile
     industry_code = profile.industry_code if profile and profile.industry_code else "150200"
     entity_type = profile.entity_type if profile else "operating_company"
     is_bank = entity_type == "financial_institution"
 
-    print(f"  📊 Key metrics:")
+    print("  Key metrics:")
     print(f"      Price: {price:.2f} CNY")
     print(f"      Shares: {total_shares:,.0f}")
     print(f"      Market Cap: {market_cap:,.0f} CNY")
@@ -179,71 +188,25 @@ def generate_report(
     print(f"      Book Equity: {book_equity:,.0f} CNY" if book_equity else "      Book Equity: N/A")
 
     # ------------------------------------------------------------------
-    # 3. Build peer-valuation data
+    # 3. Build peer valuation from only versioned local snapshots.
     # ------------------------------------------------------------------
-    target = PeerValuationInput(
-        symbol=symbol_text,
-        raw_price=price,
-        total_shares=total_shares,
-        net_profit=ttm_net_profit,
-        book_equity=book_equity,
-        revenue=ttm_revenue,
-        period_basis="2025Q4_TTM",
-    )
-
-    # Select peers (same industry filtering)
-    selected_peers: list[PeerValuationInput] = []
-    peer_decisions: list[dict] = []
-    for p in PEER_CANDIDATES:
-        included = True
-        reason = "same_industry_same_period"
-        if p.raw_price <= 0 or p.total_shares <= 0:
-            included = False
-            reason = "invalid_price_or_shares"
-        if included:
-            selected_peers.append(p)
-        peer_decisions.append({
-            "symbol": p.symbol,
-            "name": _peer_name(p.symbol),
-            "included": included,
-            "reason": reason,
-        })
-
-    # Compute multiples
-    multiples: dict[str, dict] = {}
-    for name in ("PE", "PB", "PS"):
-        summary = summarize_peer_multiple(selected_peers, name)
-        denominator = {"PE": "net_profit", "PB": "book_equity", "PS": "revenue"}[name]
-        multiples[name] = {
-            "median": summary.median,
-            "included_symbols": summary.included_symbols,
-            "excluded": summary.excluded,
-            "confidence": summary.confidence,
-            "implied_price": implied_price(target, multiple=summary, denominator=denominator),
-        }
-
-    # Peer-level validation
-    pv_errors: list[str] = []
-    pv_warnings: list[str] = []
-    if len(selected_peers) < 4:
-        pv_warnings.append("peer_count_below_4_low_confidence")
-    for name, result in multiples.items():
-        if result.get("median") is None:
-            pv_warnings.append(f"unavailable_{name.lower()}")
-    pv_rec = {
-        "valid": not pv_errors,
-        "errors": pv_errors,
-        "warnings": pv_warnings,
-        "recalculated_values": {},
-        "evidence_coverage": 0.95 if len(selected_peers) >= 4 else 0.80,
-    }
+    peer_dir = peer_snapshot_dir or snapshot_path.parent
+    target_candidate, _, candidate_peers, peer_names = _snapshot_peers(snapshot_path, snapshot_dir=peer_dir, cutoff=cutoff)
+    peer_result = value_with_peers(target_candidate, candidate_peers)
+    multiples = peer_result.multiples
+    pv_rec = peer_result.validation
+    peer_decisions = [
+        {"symbol": item.symbol, "name": peer_names.get(item.symbol, item.symbol), "included": item.included, "reason": item.reason}
+        for item in peer_result.decisions
+    ]
+    selected_peers = [item for item in candidate_peers if item.valuation.symbol in {d.symbol for d in peer_result.decisions if d.included}]
 
     peer_data = PeerValuationData(
         target_symbol=symbol_text,
         target_name=profile.name if profile else symbol_text,
-        industry_code=industry_code,
-        period_basis="2025Q4_TTM",
-        is_bank_or_insurer=is_bank,
+        industry_code=target_candidate.industry_code,
+        period_basis=target_candidate.valuation.period_basis,
+        is_bank_or_insurer=target_candidate.is_bank_or_insurer,
         raw_price=price,
         total_shares=total_shares,
         net_profit=ttm_net_profit,
@@ -266,7 +229,10 @@ def generate_report(
 
     # Add market cap calculation
     price_id = f"fact_{symbol_text.replace('.', '_')}_close_{latest_bar.trade_date}_RAW"
-    share_id = f"fact_{symbol_text.replace('.', '_')}_total_shares_2025FY"
+    share_id = (
+        f"fact_{symbol_text.replace('.', '_')}_total_shares_{latest_balance.fiscal_period}"
+        if latest_balance else ""
+    )
     if price_id in ledger._records and share_id in ledger._records:
         ledger.add_calculation(
             evidence_id="calc_market_cap",
@@ -318,17 +284,17 @@ def generate_report(
     # Build tabs
     pv_builder = PeerValuationTabBuilder(peer_data)
     pv_builder.create_tab(wb)
-    print(f"  ✅ Peer Valuation tab created")
+    print("  OK: Peer Valuation tab created")
 
     v_builder = ValidationTabBuilder(validation_data)
     v_builder.create_tab(wb)
-    print(f"  ✅ Validation tab created")
+    print("  OK: Validation tab created")
 
     # Save Excel
     excel_path = output_dir / f"{symbol_text}_cn_report.xlsx"
     wb.save(excel_path)
     file_size = excel_path.stat().st_size
-    print(f"  ✅ Excel report saved: {excel_path} ({file_size:,} bytes)")
+    print(f"  OK: Excel report saved: {excel_path} ({file_size:,} bytes)")
 
     # ------------------------------------------------------------------
     # 6. Return metadata
@@ -359,22 +325,9 @@ def generate_report(
     }
     meta_path = output_dir / f"{symbol_text}_cn_report.metadata.json"
     meta_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    print(f"  ✅ Metadata saved: {meta_path}")
+    print(f"  OK: Metadata saved: {meta_path}")
 
     return metadata
-
-
-def _peer_name(symbol: str) -> str:
-    """Map peer symbol to Chinese name."""
-    names = {
-        "000858.SZ": "五粮液",
-        "600809.SH": "山西汾酒",
-        "000568.SZ": "泸州老窖",
-        "002304.SZ": "洋河股份",
-        "603369.SH": "今世缘",
-        "600779.SH": "水井坊",
-    }
-    return names.get(symbol, symbol)
 
 
 def main() -> int:
@@ -393,6 +346,7 @@ def main() -> int:
         help="Output directory for generated reports.",
     )
     parser.add_argument("--research-as-of", default=None, help="Optional ISO-8601 cutoff.")
+    parser.add_argument("--peer-snapshot-dir", type=Path, default=PROJECT_ROOT / "data" / "snapshots" / "cn", help="Directory of compatible versioned peer snapshots.")
     args = parser.parse_args()
 
     print(f"\n{'='*70}")
@@ -401,11 +355,11 @@ def main() -> int:
     print(f"  Symbol:   {args.symbol}")
     print(f"{'='*70}\n")
 
-    metadata = generate_report(args.snapshot, args.symbol, args.output, args.research_as_of)
+    metadata = generate_report(args.snapshot, args.symbol, args.output, args.research_as_of, args.peer_snapshot_dir)
 
     print(f"\n{'='*70}")
     print(f"  Report generation complete!")
-    print(f"  Validation: {'PASS ✓' if metadata['validation']['valid'] else 'FAIL ✗'}")
+    print(f"  Validation: {'PASS' if metadata['validation']['valid'] else 'FAIL'}")
     if metadata["validation"]["errors"]:
         print(f"  Errors: {', '.join(metadata['validation']['errors'])}")
     print(f"  Markdown: {metadata['report_path']}")

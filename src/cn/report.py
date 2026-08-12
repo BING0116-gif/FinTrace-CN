@@ -40,7 +40,7 @@ class CnResearchReportBuilder:
     def build(self, symbol: CanonicalSymbol, *, research_as_of: Optional[str] = None) -> CnResearchReport:
         cutoff = research_as_of or self.snapshot._payload["research_as_of"]
         profile = self.snapshot.get_profile(symbol)
-        bars = self.snapshot.get_daily_bars(symbol)
+        bars = [bar for bar in self.snapshot.get_daily_bars(symbol) if bar.trade_date <= cutoff[:10]]
         statements = self.snapshot.get_financial_statements(symbol, research_as_of=cutoff)
         ledger = EvidenceLedger(snapshot_id=self.snapshot._payload["snapshot_id"])
 
@@ -73,14 +73,24 @@ class CnResearchReportBuilder:
         values = [item for item in statements if item.values.get(metric) is not None]
         if not values:
             return None
-        return max(values, key=lambda item: item.fiscal_period).values[metric]
+        period_rank = {"Q1": 1, "H1": 2, "9M": 3, "FY": 4}
+        def key(item):
+            for suffix, rank in period_rank.items():
+                if item.fiscal_period.endswith(suffix):
+                    return int(item.fiscal_period[:4]), rank
+            return 0, 0
+        return max(values, key=key).values[metric]
 
     @staticmethod
     def _valuation(symbol, price, shares, ttm, ledger: EvidenceLedger) -> Dict[str, Optional[float]]:
         market_cap = pe_ttm = None
         if price is not None and shares is not None:
             price_id = next(record.evidence_id for record in ledger.records() if record.metric == "close")
-            share_id = next((record.evidence_id for record in ledger.records() if record.metric == "total_shares"), None)
+            share_id = next(
+                (record.evidence_id for record in ledger.records()
+                 if record.metric == "total_shares" and record.value == shares),
+                None,
+            )
             if share_id:
                 market_cap = price * shares
                 ledger.add_calculation(evidence_id="calc_market_cap", symbol=str(symbol), metric="market_cap", value=market_cap, currency="CNY", unit="CNY", operation="multiply", input_ids=[price_id, share_id])

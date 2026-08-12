@@ -1,17 +1,43 @@
 from pathlib import Path
 
-import pytest
-
-from scripts.generate_cn_full_report import generate_report
+from scripts.generate_cn_full_report import _snapshot_candidate, _snapshot_peers, generate_report
 
 
 ROOT = Path(__file__).parents[1]
+SNAPSHOTS = ROOT / "data" / "snapshots" / "cn"
 
 
-def test_full_report_rejects_unsourced_cross_industry_peer_valuation(tmp_path):
-    with pytest.raises(ValueError, match="Moutai-specific illustrations"):
-        generate_report(
-            ROOT / "data" / "snapshots" / "cn" / "000333.SZ_20260812_tushare_v1.json",
-            "000333.SZ",
-            tmp_path,
-        )
+def test_snapshot_candidate_keeps_only_available_facts_and_evidence():
+    candidate, name = _snapshot_candidate(
+        SNAPSHOTS / "600519.SH_20260810_tushare_v1.json",
+        cutoff="2026-08-10T23:00:00+08:00",
+    )
+
+    assert candidate.valuation.symbol == "600519.SH"
+    assert name
+    assert candidate.valuation.raw_price > 0
+    assert set(candidate.evidence_ids) == {"price", "shares", "profit", "equity", "revenue"}
+
+
+def test_full_report_uses_only_snapshot_peer_facts(tmp_path):
+    metadata = generate_report(
+        SNAPSHOTS / "600519.SH_20260810_tushare_v1.json",
+        "600519.SH",
+        tmp_path,
+        peer_snapshot_dir=SNAPSHOTS,
+    )
+
+    assert metadata["snapshot_id"] == "600519.SH_20260810_tushare_v1"
+    assert metadata["peer_valuation"]["peer_count"] == 4
+    assert (tmp_path / "600519.SH_cn_report.xlsx").exists()
+
+
+def test_snapshot_peer_selection_excludes_other_industries():
+    target, _, candidates, _ = _snapshot_peers(
+        SNAPSHOTS / "600519.SH_20260810_tushare_v1.json",
+        snapshot_dir=SNAPSHOTS,
+        cutoff="2026-08-10T23:00:00+08:00",
+    )
+
+    assert target.industry_code == "L1_01"
+    assert any(item.industry_code != target.industry_code for item in candidates)
