@@ -1,0 +1,4 @@
+{
+  "schema_version": "1.0.0", "snapshot_id": "000003.SZ_illustrative_healthcare_v1", "provider": "illustrative_fixture", "symbol": "000003.SZ", "research_as_of": "2025-04-01T00:00:00+08:00", "fetched_at": "2025-04-01T00:00:00+08:00", "data_quality": "illustrative_test_fixture_not_for_research",
+  "data": {"profile": {"name": "Illustrative Healthcare", "currency": "CNY", "industry_standard": "fixture", "industry_level": "L1", "industry_code": "HEALTHCARE", "industry_name": "Healthcare"}, "bars": [{"trade_date": "2025-03-31", "open": 30.0, "high": 30.5, "low": 29.5, "close": 30.0, "volume": 100.0, "amount": 3000.0, "adjustment": "RAW", "trading_status": "NORMAL"}], "statements": [{"statement_type": "income", "fiscal_period": "2024FY", "period_basis": "2024FY_CUMULATIVE", "published_at": "2025-03-29T00:00:00+08:00", "available_at": "2025-03-29T00:00:00+08:00", "currency": "CNY", "unit": "CNY", "values": {"revenue": 300.0, "net_profit": 40.0}}]}
+}

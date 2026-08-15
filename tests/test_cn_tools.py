@@ -33,3 +33,12 @@ def test_cn_tools_resolve_and_return_offline_snapshot_data():
     assert plan["research_state"]["plan"]["symbol"] == "600519.SH"
     assert valuation["status"] == "ok"
     assert valuation["multiples"]["PE"]["implied_price"] == 20
+
+
+def test_peer_valuation_rejects_array_target_with_a_tool_error_envelope():
+    tool = {tool.name: tool for tool in build_cn_snapshot_tools(FIXTURE)}["value_with_peers"]
+
+    result = json.loads(asyncio.run(tool.execute(target=[], peers=[])))
+
+    assert result["status"] == "error"
+    assert "must be JSON objects" in result["error"]

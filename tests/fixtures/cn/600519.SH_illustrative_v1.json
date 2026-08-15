@@ -47,7 +47,7 @@
         "available_at": "2025-04-26T00:00:00+08:00",
         "currency": "CNY",
         "unit": "CNY",
-        "values": {"revenue": 30.0, "net_profit": 12.0}
+        "values": {"revenue": 30.0, "net_profit": 12.0, "ebit": 5.0}
       }
     ]
   }

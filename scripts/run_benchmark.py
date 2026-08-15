@@ -1,192 +1,153 @@
 #!/usr/bin/env python3
-"""Offline benchmark runner — executes all 20 A-share benchmark cases.
+"""Run the FinTrace-CN benchmark against a real offline agent trajectory.
 
-Usage:
-    python scripts/run_benchmark.py                          # all cases
-    python scripts/run_benchmark.py --category symbol        # specific category
-    python scripts/run_benchmark.py --output results/bench   # custom output dir
-    python scripts/run_benchmark.py --list                   # list cases
+The ``--model`` option is deliberately required: without it this command only
+lists cases, which prevents an accidental bill.  All data tools read one pinned
+local snapshot and never call Tushare or another network provider.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
+import hashlib
+import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
-sys.path.insert(0, str(Path(__file__).parents[1]))
+from dotenv import load_dotenv
 
-from src.cn.benchmark import BenchmarkCase, BenchmarkRunner, evaluate_research_state, load_cases, summarize
-from src.cn.research import ResearchState, ToolTrace
+PROJECT_ROOT = Path(__file__).parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
+# The application-level LLM package is imported as ``llms`` by the offline
+# runner, while other project modules use the ``src.*`` namespace.
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+load_dotenv(PROJECT_ROOT / ".env")
 
-
-# Paths
-_PROJECT_ROOT = Path(__file__).parents[1]
-_DEFAULT_CASES = _PROJECT_ROOT / "data" / "benchmarks" / "cn_agent_v1.json"
-_DEFAULT_OUTPUT = _PROJECT_ROOT / "output" / "benchmark"
-
-
-# ---------------------------------------------------------------------------
-# Mock executor — creates ResearchState from benchmark case metadata
-# without calling any LLM or data provider.
-# ---------------------------------------------------------------------------
-
-def _build_mock_state(case: BenchmarkCase) -> ResearchState:
-    """Build a ResearchState that matches the expected benchmark case.
-
-    This is a deterministic mock — it produces the exact tool calls and
-    evidence IDs that the benchmark evaluator expects, so every case
-    should pass with tool_f1=1.0, evidence_coverage=1.0.
-    """
-    # Infer symbol from the first required_arguments entry
-    symbol = "600519.SH"
-    for tool_args in case.required_arguments.values():
-        if "ticker" in tool_args:
-            symbol = str(tool_args["ticker"])
-        elif "query" in tool_args:
-            query = str(tool_args["query"])
-            if isinstance(query, str) and query.isdigit() and len(query) == 6:
-                symbol = f"{query}.SH"
-
-    state = ResearchState.create(
-        query=case.query,
-        symbol=symbol,
-        research_as_of="2026-08-10T00:00:00+08:00",
-    )
-    state.plan = type(state.plan)(
-        intent=case.category,
-        symbol=symbol,
-        research_as_of="2026-08-10T00:00:00+08:00",
-        tasks=case.expected_tools,
-        required_evidence=case.required_evidence,
-    )
-
-    for tool_name in case.expected_tools:
-        arguments = case.required_arguments.get(tool_name, {})
-        state.record_tool(
-            tool_name=tool_name,
-            arguments=arguments,
-            started_at="2026-08-10T00:00:00+00:00",
-            ended_at="2026-08-10T00:00:30+00:00",
-            result_status=case.expected_status,
-        )
-    state.register_evidence(case.required_evidence)
-
-    # Add validation result for completeness
-    if case.required_evidence:
-        state.finalize_validation({"valid": True, "missing_evidence": []})
-
-    return state
+from src.cn.benchmark import BenchmarkCase, BenchmarkRunner, load_cases
+from src.cn.offline_agent import OfflineCnAgent, SYSTEM_PROMPT
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+DEFAULT_CASES = PROJECT_ROOT / "data" / "benchmarks" / "cn_agent_v1.json"
+DEFAULT_SNAPSHOTS = PROJECT_ROOT / "data" / "snapshots" / "cn"
+DEFAULT_OUTPUT = PROJECT_ROOT / "output" / "benchmark"
+
+
+def _git_commit() -> str:
+    """Return the checked-out commit without making benchmark execution depend on Git."""
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=PROJECT_ROOT, text=True, stderr=subprocess.DEVNULL,
+        ).strip()
+    except (OSError, subprocess.SubprocessError):
+        return "unavailable"
+
 
 def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Offline A-share benchmark runner")
-    parser.add_argument("--cases", default=str(_DEFAULT_CASES), help="Benchmark JSON file")
-    parser.add_argument("--output", default=str(_DEFAULT_OUTPUT), help="Output directory")
-    parser.add_argument("--category", default=None, help="Run only a specific category (e.g. symbol)")
-    parser.add_argument("--list", action="store_true", dest="list_cases", help="List available cases and exit")
+    parser = argparse.ArgumentParser(description="Real offline A-share Agent benchmark")
+    parser.add_argument("--cases", default=str(DEFAULT_CASES), help="Benchmark JSON file")
+    parser.add_argument("--snapshot-dir", default=str(DEFAULT_SNAPSHOTS), help="Directory containing pinned snapshots")
+    parser.add_argument("--output", default=str(DEFAULT_OUTPUT), help="Output directory")
+    parser.add_argument("--category", default=None, help="Run only a benchmark category")
+    parser.add_argument("--model", default=None, help="Registered LLM model to invoke (required for a run)")
+    parser.add_argument("--temperature", type=float, default=0.0, help="Fixed LLM temperature")
+    parser.add_argument("--max-steps", type=int, default=6, help="Fixed maximum tool-calling steps")
+    parser.add_argument("--all-snapshots", action="store_true", help="Build one price-routing case for every local snapshot")
+    parser.add_argument("--list", action="store_true", dest="list_cases", help="List cases and exit")
     return parser.parse_args(argv)
+
+
+def _snapshot_for(case, snapshot_dir: Path) -> Path:
+    if case.snapshot_path:
+        path = Path(case.snapshot_path)
+        return path if path.is_absolute() else PROJECT_ROOT / path
+    ticker = "600519.SH"
+    for requirements in case.required_arguments.values():
+        if requirements.get("ticker"):
+            ticker = str(requirements["ticker"])
+            break
+    matches = sorted(snapshot_dir.glob(f"{ticker}_*.json"))
+    if not matches:
+        raise FileNotFoundError(f"No local snapshot available for {case.case_id} ({ticker}).")
+    return matches[-1]
+
+
+def _all_snapshot_cases(snapshot_dir: Path) -> list[BenchmarkCase]:
+    """Create one evidence-backed routing case per pinned local snapshot."""
+    cases = []
+    for path in sorted(snapshot_dir.glob("*.json")):
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        ticker = str(payload["symbol"])
+        bars = [bar for bar in payload.get("data", {}).get("bars", []) if bar.get("adjustment") == "RAW"]
+        if not bars:
+            continue
+        latest = max(bars, key=lambda item: item["trade_date"])
+        cases.append(BenchmarkCase(
+            case_id=f"snapshot-price-{ticker.replace('.', '-').lower()}", category="snapshot_routing",
+            query=f"Use the offline snapshot to fetch the closing price for {ticker} and return its evidence ID.",
+            expected_tools=["resolve_cn_symbol", "get_cn_prices"],
+            required_arguments={"resolve_cn_symbol": {"query": ticker}, "get_cn_prices": {"ticker": ticker}},
+            required_evidence=[f"fact_{ticker.replace('.', '_')}_close_{latest['trade_date']}_RAW"],
+            snapshot_path=str(path.relative_to(PROJECT_ROOT)), research_as_of=payload["research_as_of"],
+        ))
+    return cases
+
+
+async def _run(args: argparse.Namespace, cases) -> dict:
+    snapshot_dir = Path(args.snapshot_dir)
+    snapshot_paths = [_snapshot_for(case, snapshot_dir) for case in cases]
+    snapshot_ids = sorted({json.loads(path.read_text(encoding="utf-8"))["snapshot_id"] for path in snapshot_paths})
+
+    async def execute(case):
+        agent = OfflineCnAgent(snapshot_path=_snapshot_for(case, snapshot_dir), model_name=args.model,
+                               temperature=args.temperature, max_steps=args.max_steps,
+            required_metrics=case.required_metrics,
+                               requested_valuation_method=case.requested_valuation_method)
+        return await agent.run(case.query)
+
+    metadata = {
+        "benchmark_version": "cn-snapshot-e2e-v1" if args.all_snapshots else json.loads(Path(args.cases).read_text(encoding="utf-8"))["version"],
+        "snapshot_id": snapshot_ids[0] if len(snapshot_ids) == 1 else snapshot_ids,
+        "snapshot_ids": snapshot_ids,
+        "model": args.model,
+        "temperature": args.temperature,
+        "max_steps": args.max_steps,
+        "network": False,
+        "executor": "OfflineCnAgent",
+        "prompt_version": f"offline-cn-agent-{hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]}",
+        "git_commit": _git_commit(),
+        "run_at": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
+    }
+    return await BenchmarkRunner(cases).run(execute, output_dir=args.output, metadata=metadata)
 
 
 def main(argv: Optional[List[str]] = None) -> int:
     args = _parse_args(argv)
-
-    cases_path = Path(args.cases)
-    if not cases_path.exists():
-        print(f"ERROR: cases file not found: {cases_path}", file=sys.stderr)
-        return 1
-
-    cases = load_cases(cases_path)
+    cases = _all_snapshot_cases(Path(args.snapshot_dir)) if args.all_snapshots else load_cases(args.cases)
     if args.list_cases:
-        print(f"Loaded {len(cases)} benchmark cases from {cases_path}")
-        print(f"{'ID':<20} {'Category':<15} {'Query':<40} {'Tools':<30}")
-        print("-" * 105)
         for case in cases:
-            tools = ", ".join(case.expected_tools)
-            print(f"{case.case_id:<20} {case.category:<15} {case.query:<40} {tools:<30}")
+            print(f"{case.case_id:<14} {case.category:<10} {case.query}")
         return 0
-
-    # Filter by category if specified
+    if not args.model:
+        print("ERROR: --model is required to run a real Agent benchmark; use --list for the free case inventory.", file=sys.stderr)
+        return 2
     if args.category:
-        filtered = [c for c in cases if c.category == args.category]
-        if not filtered:
+        cases = [case for case in cases if case.category == args.category]
+        if not cases:
             print(f"ERROR: no cases found for category '{args.category}'", file=sys.stderr)
             return 1
-        print(f"Filtered to {len(filtered)} cases for category '{args.category}'")
-        cases = filtered
-
-    output_dir = Path(args.output)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    print(f"Running {len(cases)} benchmark cases...")
-    print(f"  Cases:   {cases_path}")
-    print(f"  Output:  {output_dir}")
-
-    runner = BenchmarkRunner(cases)
-    results = []
-    for case in cases:
-        state = _build_mock_state(case)
-        results.append(evaluate_research_state(case, state))
-
-    summary = summarize(results)
-    print(f"\n{'='*60}")
-    print(f"  Benchmark Summary")
-    print(f"{'='*60}")
-    print(f"  Cases:             {summary['cases']}")
-    print(f"  Tool F1:           {summary['tool_f1']:.3f}")
-    print(f"  Parameter Acc:     {summary['parameter_accuracy']:.3f}")
-    print(f"  Evidence Coverage: {summary['evidence_coverage']:.3f}")
-    print(f"  E2E Success Rate:  {summary['e2e_success_rate']:.3f}")
-    print(f"{'='*60}")
-
-    # Write results
-    payload = {
-        "summary": summary,
-        "results": results,
-        "metadata": {
-            "benchmark_version": "cn-agent-v1",
-            "snapshot_id": "offline_mock",
-            "network": False,
-            "cases_file": str(cases_path),
-            "variants": ["offline_mock"],
-            "run_at": time.strftime("%Y-%m-%dT%H:%M:%S+08:00"),
-        },
-    }
-    (output_dir / "results.json").write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    BenchmarkRunner._write_csv(output_dir / "results.csv", results)
-
-    # Write per-category breakdown
-    categories = sorted({c.category for c in cases})
-    for cat in categories:
-        cat_results = [r for r in results if r["case_id"].startswith(cat.split("-")[0])]
-        if cat_results:
-            cat_summary = summarize(cat_results)
-            print(f"  {cat}: {cat_summary['e2e_success_rate']:.0%} pass ({cat_summary['cases']} cases)")
-
-    # Regression check (if baseline exists)
-    baseline_path = output_dir / "baseline.json"
-    if baseline_path.exists():
-        baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-        from src.cn.benchmark import check_regression
-        regression = check_regression(summary, baseline.get("summary", baseline))
-        if not regression["passed"]:
-            print("\nWARNING: REGRESSION DETECTED:")
-            for r in regression["regressions"]:
-                print(f"  {r['metric']}: {r['current']:.3f} vs baseline {r['baseline']:.3f} (allowed drop: {r['allowed_drop']})")
-            return 1
-
-    print(f"\nOK: Results written to {output_dir}")
+    try:
+        payload = asyncio.run(_run(args, cases))
+    except Exception as exc:
+        print(f"ERROR: benchmark failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(payload["summary"], ensure_ascii=False, indent=2))
+    print(f"Results written to {args.output}")
     return 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

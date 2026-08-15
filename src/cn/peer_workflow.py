@@ -96,6 +96,11 @@ def validate_peer_valuation(target: PeerCandidate, peers: Iterable[PeerCandidate
         if denominator is None or denominator <= 0:
             errors.append(f"invalid_target_{name.lower()}_denominator")
             continue
+        # Keep validating the target input, but never attempt a division after
+        # detecting missing/zero shares.  A blocked snapshot must return a
+        # typed validation failure rather than crash the read-only workbench.
+        if target.valuation.total_shares <= 0:
+            continue
         expected = float(median) * denominator / target.valuation.total_shares
         recalculated[f"implied_price_{name}"] = expected
         if implied is None or abs(float(implied) - expected) > 1e-9:

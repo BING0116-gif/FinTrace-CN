@@ -18,6 +18,7 @@ import argparse
 import json
 import sys
 from dataclasses import asdict
+from datetime import date
 from pathlib import Path
 
 import openpyxl
@@ -121,6 +122,13 @@ def _snapshot_peers(target_path: Path, *, snapshot_dir: Path, cutoff: str) -> tu
     names = {target.valuation.symbol: target_name}
     for path in sorted(snapshot_dir.glob("*_tushare_v1.json")):
         if path.resolve() == target_path.resolve():
+            continue
+        # Keep the frozen cross-sectional peer window deliberately narrow.
+        # A newer unrelated snapshot must not silently change this report.
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        peer_date = str(payload.get("research_as_of", ""))[:10]
+        target_date = cutoff[:10]
+        if not peer_date or abs((date.fromisoformat(peer_date) - date.fromisoformat(target_date)).days) > 3:
             continue
         candidate, name = _snapshot_candidate(path, cutoff=cutoff)
         candidates.append(candidate)

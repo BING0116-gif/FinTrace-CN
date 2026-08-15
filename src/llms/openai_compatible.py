@@ -28,7 +28,7 @@ from typing import Tuple, List, Dict
 from openai import OpenAI
 from openai import RateLimitError, APITimeoutError, APIConnectionError
 
-from logger import get_logger
+from src.logger import get_logger
 from .model_registry import get_model_info
 
 

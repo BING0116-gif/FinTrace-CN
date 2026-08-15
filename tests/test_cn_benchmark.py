@@ -50,6 +50,8 @@ async def test_runner_writes_real_research_state_json_csv_and_baseline_gate(tmp_
     payload = await runner.run(lambda _: state, output_dir=tmp_path,
                                metadata={"benchmark_version": "cn-agent-v1", "snapshot_id": "snapshot-v1"})
     assert payload["summary"]["e2e_success_rate"] == 1.0
+    assert payload["summary"]["avg_llm_calls"] == 0.0
+    assert payload["summary"]["total_cost_usd"] == 0.0
     assert payload["metadata"]["snapshot_id"] == "snapshot-v1"
     assert (tmp_path / "results.csv").read_text(encoding="utf-8").startswith("case_id,")
     baseline = tmp_path / "baseline.json"

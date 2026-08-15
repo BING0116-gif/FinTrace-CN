@@ -3,7 +3,7 @@ from openai import RateLimitError, APITimeoutError, APIConnectionError
 import time
 import os
 from typing import Tuple, List, Dict
-from logger import get_logger
+from src.logger import get_logger
 
 
 def calculate_cost(response, model_name):

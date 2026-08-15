@@ -202,22 +202,19 @@ def test_benchmark_script_list():
     assert exit_code == 0
 
 
-def test_benchmark_script_run(tmp_path):
-    """run_benchmark.py should produce results files."""
+def test_benchmark_script_requires_explicit_model_to_prevent_unbilled_runs(tmp_path):
+    """A real benchmark must not silently make a paid model call."""
     from scripts.run_benchmark import main
     exit_code = main(["--output", str(tmp_path)])
-    assert exit_code == 0
-    assert (tmp_path / "results.json").exists()
-    assert (tmp_path / "results.csv").exists()
+    assert exit_code == 2
+    assert not (tmp_path / "results.json").exists()
 
 
-def test_benchmark_script_category_filter(tmp_path):
-    """--category filter should run only matching cases."""
+def test_benchmark_script_category_filter_requires_explicit_model(tmp_path):
+    """Category filtering does not bypass the paid-model safety gate."""
     from scripts.run_benchmark import main
     exit_code = main(["--category", "symbol", "--output", str(tmp_path)])
-    assert exit_code == 0
-    results = json.loads((tmp_path / "results.json").read_text(encoding="utf-8"))
-    assert results["summary"]["cases"] == 3  # 3 symbol cases
+    assert exit_code == 2
 
 
 def test_ablation_script_list():

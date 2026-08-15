@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import csv
 import inspect
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
 
@@ -30,6 +31,12 @@ class BenchmarkCase:
     required_arguments: Dict[str, Dict[str, object]]
     required_evidence: List[str]
     expected_status: str = "ok"
+    snapshot_path: Optional[str] = None
+    research_as_of: Optional[str] = None
+    validator_expected: Optional[bool] = None
+    required_metrics: List[str] = field(default_factory=list)
+    requires_evidence: bool = False
+    requested_valuation_method: Optional[str] = None
 
 
 def load_cases(path: Path | str) -> List[BenchmarkCase]:
@@ -75,6 +82,10 @@ def summarize(results: Iterable[Dict[str, object]]) -> Dict[str, object]:
         "parameter_accuracy": sum(bool(row["parameters_ok"]) for row in rows) / size,
         "evidence_coverage": sum(float(row["evidence_coverage"]) for row in rows) / size,
         "e2e_success_rate": sum(bool(row["passed"]) for row in rows) / size,
+        "avg_latency_seconds": sum(float(row.get("latency_seconds", 0.0)) for row in rows) / size,
+        "avg_tool_calls": sum(int(row.get("tool_calls", 0)) for row in rows) / size,
+        "avg_llm_calls": sum(int(row.get("llm_calls", 0)) for row in rows) / size,
+        "total_cost_usd": sum(float(row.get("cost_usd", 0.0)) for row in rows),
     }
 
 
@@ -86,7 +97,19 @@ def evaluate_research_state(case: BenchmarkCase, state: ResearchState) -> Dict[s
         (trace.__dict__ for trace in state.tool_trace),
         evidence_ids=[*state.facts, *state.calculations, *trace_evidence],
     )
-    result.update({"trace_id": state.trace_id, "query": state.query, "tool_calls": len(state.tool_trace)})
+    # Keep the captured state in JSON results so a measured score remains
+    # auditable: callers can inspect actual arguments, tool errors, evidence,
+    # validator output, and cost rather than trusting an aggregate metric.
+    validator_ok = True
+    if case.validator_expected is not None:
+        validator_ok = bool(state.validation_result) and bool(state.validation_result.get("valid")) == case.validator_expected
+    result["validator_ok"] = validator_ok
+    result["passed"] = bool(result["passed"]) and validator_ok
+    result.update({"trace_id": state.trace_id, "query": state.query, "tool_calls": len(state.tool_trace),
+                   "research_state": state.to_dict()})
+    cost_trace = state.cost_trace
+    result["cost_usd"] = sum(float(item.get("cost_usd", 0.0)) for item in cost_trace)
+    result["llm_calls"] = sum(int(item.get("llm_calls", 0)) for item in cost_trace)
     return result
 
 
@@ -137,12 +160,12 @@ def write_ablation_report(output_dir: Path | str, variant_runs: Mapping[str, Map
         writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(report["variants"])
-    table = ["| Variant | Cases | Tool F1 | Parameter accuracy | Evidence coverage | E2E success |",
+    table = ["| 配置 | 案例数 | 工具 F1 | 参数准确率 | 证据覆盖率 | 端到端成功率 |",
              "|---|---:|---:|---:|---:|---:|"]
     for row in report["variants"]:
         table.append("| {variant} | {cases} | {tool_f1:.3f} | {parameter_accuracy:.3f} | {evidence_coverage:.3f} | {e2e_success_rate:.3f} |".format(**row))
     if report["missing_variants"]:
-        table.extend(["", "Missing (not measured): " + ", ".join(report["missing_variants"]) + "."])
+        table.extend(["", "未测量的配置：" + "、".join(report["missing_variants"]) + "。"])
     (directory / "ablation.md").write_text("\n".join(table) + "\n", encoding="utf-8")
     return report
 
@@ -181,12 +204,15 @@ class BenchmarkRunner:
         """Execute every case, write ``results.json``/``results.csv``, then gate regressions."""
         rows = []
         for case in self.cases:
+            started_at = time.monotonic()
             state = execute_case(case)
             if inspect.isawaitable(state):
                 state = await state
             if not isinstance(state, ResearchState):
                 raise TypeError(f"Benchmark executor for {case.case_id} must return ResearchState.")
-            rows.append(evaluate_research_state(case, state))
+            row = evaluate_research_state(case, state)
+            row["latency_seconds"] = time.monotonic() - started_at
+            rows.append(row)
 
         payload: Dict[str, object] = {"summary": summarize(rows), "results": rows, "metadata": dict(metadata or {})}
         if baseline_path is not None:
@@ -205,7 +231,7 @@ class BenchmarkRunner:
 
     @staticmethod
     def _write_csv(path: Path, rows: Sequence[Mapping[str, object]]) -> None:
-        fields = ("case_id", "trace_id", "query", "tool_calls", "tool_f1", "parameters_ok", "evidence_coverage", "status_ok", "passed")
+        fields = ("case_id", "trace_id", "query", "tool_calls", "llm_calls", "latency_seconds", "cost_usd", "tool_f1", "parameters_ok", "evidence_coverage", "status_ok", "validator_ok", "passed")
         with path.open("w", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
             writer.writeheader()

@@ -46,7 +46,7 @@ import random
 import time
 from typing import Dict, List, Optional, Tuple
 
-from logger import get_logger
+from src.logger import get_logger
 
 # Cost calculation is now sourced from the unified registry via cost_calculator.
 from .cost_calculator import calculate_cost_openai, calculate_cost_anthropic

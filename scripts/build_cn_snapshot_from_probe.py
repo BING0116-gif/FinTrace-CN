@@ -9,11 +9,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict
 
 import pandas as pd
+
+# Direct script execution places ``scripts/`` rather than the project root on
+# sys.path.  Add the root before importing the shared canonical classifier.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+from src.cn.industries import is_financial_institution
 
 
 VALUE_MAPS: Dict[str, Dict[str, str]] = {
@@ -40,7 +48,12 @@ def _period(end_date: str, end_type: str, statement_type: str) -> tuple[str, str
 
 def _statements(probe_dir: Path, statement_type: str, filename: str):
     frame = pd.read_csv(probe_dir / filename, dtype={"ann_date": "string", "f_ann_date": "string", "end_date": "string", "end_type": "string", "report_type": "string", "comp_type": "string", "update_flag": "string"})
-    frame = frame[(frame["report_type"] == "1") & (frame["comp_type"] == "1")].copy()
+    # Tushare uses comp_type 1/2/3/4 for general companies, banks, brokers,
+    # and insurers.  They are valid issuer categories; report_type=1 is the
+    # consolidated-statement discriminator.  CSV round-trips may yield 1.0.
+    report_type = frame["report_type"].str.replace(".0", "", regex=False)
+    comp_type = frame["comp_type"].str.replace(".0", "", regex=False)
+    frame = frame[(report_type == "1") & comp_type.isin({"1", "2", "3", "4"})].copy()
     frame["effective_date"] = frame["f_ann_date"].fillna(frame["ann_date"])
     frame = frame.sort_values(["end_date", "effective_date"], ascending=[False, False]).drop_duplicates("end_date")
     records = []
@@ -100,8 +113,12 @@ def main() -> int:
         "source_metadata": {"raw_probe_dir": args.probe_dir.name, "normalization_version": "cn-fields-1.0.0"},
         "data": {
             "profile": {
-                "name": str(profile_row["name"]), "currency": "CNY", "industry_standard": "tushare_stock_basic",
-                "industry_level": "industry", "industry_name": str(profile_row["industry"]),
+            "name": str(profile_row["name"]), "currency": "CNY", "industry_standard": "tushare_stock_basic",
+            "industry_level": "industry", "industry_name": str(profile_row["industry"]),
+            # This is a deterministic canonical-symbol classification, not an
+            # LLM inference.  It makes the financial-valuation boundary travel
+            # with a provider-normalized snapshot and into every report export.
+            "entity_type": "financial_institution" if is_financial_institution(symbol[:6]) else "operating_company",
             },
             "bars": bars,
             "statements": statements,

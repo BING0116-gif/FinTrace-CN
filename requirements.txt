@@ -25,6 +25,12 @@ akshare>=1.18.0
 # Excel export
 openpyxl>=3.1.0
 
+# Read-only research workbench prototype.  Kept in the project virtualenv.
+streamlit>=1.48.0
+plotly>=5.24.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+
 langgraph>=0.3.14
 requests>=2.31.0
 

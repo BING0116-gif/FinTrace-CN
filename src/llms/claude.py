@@ -3,7 +3,7 @@ from anthropic import RateLimitError, APITimeoutError, APIConnectionError
 import time
 import os
 from typing import Tuple, List, Dict
-from logger import get_logger
+from src.logger import get_logger
 
 # API model IDs are sourced from the registry (single source of truth).
 from .model_registry import get_model_info

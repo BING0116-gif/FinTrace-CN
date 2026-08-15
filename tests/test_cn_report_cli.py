@@ -31,4 +31,4 @@ def test_snapshot_report_cli_renders_bank_boundary_case_without_network(tmp_path
     )
 
     assert json.loads(completed.stdout)["validation"]["valid"]
-    assert "Financial-institution valuation boundary" in output.read_text(encoding="utf-8")
+    assert "金融机构估值边界" in output.read_text(encoding="utf-8")

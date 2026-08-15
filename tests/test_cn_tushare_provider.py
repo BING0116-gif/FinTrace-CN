@@ -25,7 +25,10 @@ class FakeTushareClient:
         return pd.DataFrame([row])
 
     def income(self, **_kwargs):
-        return self._statement(revenue=100, n_income_attr_p=20, ebit=30, ebitda=40)
+        first = self._statement(revenue=100, n_income_attr_p=20, ebit=30, ebitda=40)
+        revised = self._statement(revenue=101, n_income_attr_p=21, ebit=31, ebitda=41)
+        revised["f_ann_date"] = "20260426"
+        return pd.concat([first, revised], ignore_index=True)
 
     def balancesheet(self, **_kwargs):
         return self._statement(
@@ -51,6 +54,21 @@ def test_tushare_provider_maps_approved_calls_to_canonical_schema():
     assert bars[0].trade_date == "2026-08-10"
     assert bars[0].adjustment == "RAW"
     assert len(statements) == 3
-    assert statements[0].available_at == "2026-04-25T00:00:00+08:00"
+    assert statements[0].available_at == "2026-04-26T00:00:00+08:00"
     assert statements[0].period_basis == "2026Q1_CUMULATIVE"
+    assert statements[0].values["revenue"] == 101.0
     assert provider.call_budget.used_calls == 5
+
+
+def test_tushare_provider_keeps_bank_statements_instead_of_treating_comp_type_as_scope():
+    provider = TushareProvider("test-token", call_budget=TushareCallBudget(max_calls=3))
+    client = FakeTushareClient()
+    for method in (client.income, client.balancesheet, client.cashflow):
+        frame = method()
+        frame["comp_type"] = "2"  # Tushare bank issuer category
+        setattr(client, method.__name__, lambda _frame=frame, **_kwargs: _frame)
+    provider._client = client
+
+    statements = provider.get_financial_statements(normalize_cn_symbol("600036.SH"))
+
+    assert len(statements) == 3

@@ -148,7 +148,10 @@ class TushareProvider(FinancialDataProvider):
             "balance": self._call("balancesheet", ts_code=str(symbol)),
             "cashflow": self._call("cashflow", ts_code=str(symbol)),
         }
-        statements: List[FinancialStatement] = []
+        # Tushare can return multiple revisions for one statement endpoint and
+        # period.  The canonical schema has one evidence ID per metric/period,
+        # so retain the latest available disclosure deterministically.
+        statements_by_period: Dict[tuple[str, str], FinancialStatement] = {}
         value_maps: Dict[str, Dict[str, str]] = {
             "income": {"revenue": "revenue", "net_profit": "n_income_attr_p", "ebit": "ebit", "ebitda": "ebitda"},
             "balance": {"total_assets": "total_assets", "total_liabilities": "total_liab", "equity": "total_hldr_eqy_exc_min_int", "total_shares": "total_share"},
@@ -156,14 +159,21 @@ class TushareProvider(FinancialDataProvider):
         }
         cutoff = research_as_of or "9999-12-31T23:59:59+08:00"
         for statement_type, frame in frames.items():
-            consolidated = frame[(frame["report_type"].astype(str) == "1") & (frame["comp_type"].astype(str) == "1")]
+            # ``comp_type`` describes the issuer category (general company,
+            # bank, broker, insurer), not whether a statement is standalone.
+            # All of these categories can provide consolidated ``report_type=1``
+            # statements.  Restricting this to ``1`` silently discarded every
+            # financial-institution statement.
+            consolidated = frame[
+                (frame["report_type"].astype(str).str.replace(".0", "", regex=False) == "1")
+                & frame["comp_type"].astype(str).str.replace(".0", "", regex=False).isin({"1", "2", "3", "4"})
+            ]
             for _, row in consolidated.iterrows():
                 available_at = _iso_date(row.get("f_ann_date")) or _iso_date(row.get("ann_date"))
                 if available_at and available_at > cutoff:
                     continue
                 end_date = str(row["end_date"])
-                statements.append(
-                    FinancialStatement(
+                statement = FinancialStatement(
                         statement_type=statement_type,  # type: ignore[arg-type]
                         fiscal_period=end_date,
                         period_basis=_period_basis(end_date, row.get("end_type"), statement_type=statement_type),
@@ -174,5 +184,8 @@ class TushareProvider(FinancialDataProvider):
                         values={key: _value(row, source) for key, source in value_maps[statement_type].items()},
                         is_restated=str(row.get("update_flag") or "") == "1",
                     )
-                )
-        return statements
+                key = (statement_type, end_date)
+                previous = statements_by_period.get(key)
+                if previous is None or (statement.available_at or "") >= (previous.available_at or ""):
+                    statements_by_period[key] = statement
+        return list(statements_by_period.values())

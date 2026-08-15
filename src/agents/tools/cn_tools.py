@@ -92,10 +92,12 @@ class GetCnPricesTool(_SnapshotTool):
         if not bars:
             return tool_error("No RAW bars in the configured snapshot for this range.", ticker=str(symbol))
         latest = max(bars, key=lambda item: item.trade_date)
+        evidence_id = f"fact_{str(symbol).replace('.', '_')}_close_{latest.trade_date}_RAW"
         return tool_ok(
             ticker=str(symbol), snapshot_id=self.snapshot._payload["snapshot_id"], adjustment="RAW",
             latest={"trade_date": latest.trade_date, "close": latest.close, "volume": latest.volume, "amount": latest.amount},
             bars=[{"trade_date": item.trade_date, "open": item.open, "high": item.high, "low": item.low, "close": item.close} for item in bars],
+            evidence_ids=[evidence_id],
             note="Offline snapshot data; do not describe it as a live quote.",
         )
 
@@ -199,14 +201,16 @@ class ValueWithPeersTool(Tool):
     parameters = {
         "type": "object",
         "properties": {
-            "target": {"type": "object", "description": "Target with symbol, raw_price, total_shares, net_profit, book_equity, revenue, period_basis, industry_code, evidence_ids, and optional is_bank_or_insurer."},
-            "peers": {"type": "array", "items": {"type": "object"}, "description": "Peer inputs in the same shape as target."},
+            "target": {"type": "object", "description": "Exactly one target OBJECT (never an array): symbol, raw_price, total_shares, net_profit, book_equity, revenue, period_basis, industry_code, evidence_ids object, and optional is_bank_or_insurer."},
+            "peers": {"type": "array", "items": {"type": "object"}, "description": "Array of peer objects in the same shape as target; evidence_ids must be an object mapping field names to IDs."},
         },
         "required": ["target", "peers"],
     }
 
     @staticmethod
     def _candidate(raw: Dict[str, object]) -> PeerCandidate:
+        if not isinstance(raw, dict):
+            raise ValueError("Peer valuation target and every peer must be JSON objects, not arrays or scalars.")
         required = ("symbol", "raw_price", "total_shares", "period_basis", "industry_code")
         missing = [key for key in required if raw.get(key) is None]
         if missing:
@@ -226,7 +230,7 @@ class ValueWithPeersTool(Tool):
     async def execute(self, target: Dict[str, object], peers: List[Dict[str, object]]) -> str:
         try:
             result = value_with_peers(self._candidate(target), [self._candidate(item) for item in peers])
-        except (TypeError, ValueError) as exc:
+        except (AttributeError, TypeError, ValueError) as exc:
             return tool_error(str(exc))
         return tool_ok(**result_to_dict(result))
 

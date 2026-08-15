@@ -99,6 +99,7 @@ class CnResearchReportBuilder:
             profit_id = f"calc_ttm_net_profit_{ttm.fiscal_period}"
             # TTM is derived from published statement facts; its source periods remain explicit.
             source_ids = [f"fact_{str(symbol).replace('.', '_')}_net_profit_{period}" for period in ttm.source_periods]
+            profit_evidence_id = source_ids[0] if len(source_ids) == 1 else profit_id
             if len(source_ids) == 2:
                 ledger.add_calculation(evidence_id=profit_id, symbol=str(symbol), metric="net_profit_ttm", value=profit, currency="CNY", unit="CNY", operation="add", input_ids=source_ids, fiscal_period=ttm.fiscal_period, period_basis="TTM")
             # The ledger's subtract operation is left minus the remaining inputs,
@@ -109,6 +110,12 @@ class CnResearchReportBuilder:
                 ledger.add_calculation(evidence_id=subtotal_id, symbol=str(symbol), metric="net_profit_ttm_subtotal", value=subtotal, currency="CNY", unit="CNY", operation="add", input_ids=source_ids[:2], fiscal_period=ttm.fiscal_period, period_basis="TTM")
                 ledger.add_calculation(evidence_id=profit_id, symbol=str(symbol), metric="net_profit_ttm", value=profit, currency="CNY", unit="CNY", operation="subtract", input_ids=[subtotal_id, source_ids[2]], fiscal_period=ttm.fiscal_period, period_basis="TTM")
             pe_ttm = market_cap / profit
+            ledger.add_calculation(
+                evidence_id="calc_pe_ttm", symbol=str(symbol), metric="pe_ttm",
+                value=pe_ttm, currency="CNY", unit="multiple", operation="divide",
+                input_ids=["calc_market_cap", profit_evidence_id],
+                fiscal_period=ttm.fiscal_period, period_basis="TTM",
+            )
         return {"market_cap": market_cap, "pe_ttm": pe_ttm}
 
     @staticmethod
@@ -126,16 +133,23 @@ class CnResearchReportBuilder:
         ]
         if entity_type == "financial_institution":
             lines += [
-                "", "## Financial-institution valuation boundary", "",
-                "- Classification: financial institution (from snapshot `entity_type`, not model inference).",
-                "- This report shows only recomputable market-cap and P/E (TTM) facts; it does not present PS, EV/EBITDA, or generic DCF as a bank valuation conclusion.",
-                "- Peer valuation requires bank peers, an aligned period, and evidence-covered PE/PB inputs.",
+                "", "## 金融机构估值边界", "",
+                "- 实体分类：金融机构（来自快照 `entity_type`，并非模型推断）。",
+                "- 本报告仅展示可重算的市值与 P/E（TTM）事实，不将 PS、EV/EBITDA 或通用 DCF 作为银行估值结论。",
+                "- 同行估值需要银行同行、统一期间以及具备证据覆盖的 PE/PB 输入。",
             ]
         for metric, label in (("revenue", "营业收入"), ("net_profit", "归母净利润"), ("ebit", "EBIT"), ("ebitda", "EBITDA")):
             value = ttm.values.get(metric) if ttm else None
-            evidence_id = f"calc_ttm_{metric}_{ttm.fiscal_period}" if metric == "net_profit" and value is not None else "—"
+            if metric == "net_profit" and value is not None:
+                evidence_id = (
+                    f"fact_{str(symbol).replace('.', '_')}_net_profit_{ttm.source_periods[0]}"
+                    if len(ttm.source_periods) == 1
+                    else f"calc_ttm_net_profit_{ttm.fiscal_period}"
+                )
+            else:
+                evidence_id = "—"
             lines.append(f"| {label} | {_number(value)} | {_period_label(ttm.fiscal_period) if ttm else '—'} | `{evidence_id}` |")
-        lines += ["", "## 基础估值", "", "| 指标 | 数值 | Evidence ID |", "|---|---:|---|", f"| 市值 | {_number(valuation['market_cap'])} CNY | `calc_market_cap` |", f"| P/E（TTM） | {_number(valuation['pe_ttm'])}x | `calc_ttm_net_profit_{ttm.fiscal_period}` |", "", "## Validator 结果", "", f"- 状态：{'通过' if validation.valid else '未通过'}", f"- 错误：{', '.join(validation.errors) if validation.errors else '无'}", "", "## 证据索引", "", "| Evidence ID | 指标 | 数值 | 期间/日期 | 来源 |", "|---|---|---:|---|---|"]
+        lines += ["", "## 基础估值", "", "| 指标 | 数值 | Evidence ID |", "|---|---:|---|", f"| 市值 | {_number(valuation['market_cap'])} CNY | `calc_market_cap` |", f"| P/E（TTM） | {_number(valuation['pe_ttm'])}x | `calc_pe_ttm` |", "", "## Validator 结果", "", f"- 状态：{'通过' if validation.valid else '未通过'}", f"- 错误：{', '.join(validation.errors) if validation.errors else '无'}", "", "## 证据索引", "", "| Evidence ID | 指标 | 数值 | 期间/日期 | 来源 |", "|---|---|---:|---|---|"]
         for record in records:
             period = record.fiscal_period or record.published_at or "—"
             lines.append(f"| `{record.evidence_id}` | {record.metric} | {_number(record.value)} | {period} | {record.provider} |")
