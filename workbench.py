@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import importlib
 from pathlib import Path
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import pandas as pd
 import plotly.express as px
@@ -26,6 +26,8 @@ REQUIRED_SERVICE_FUNCTIONS = (
     "research_evidence", "research_validation", "research_market",
     "research_financials", "research_financial_trends", "research_display_guardrails",
     "research_overview_insights", "research_valuation", "list_evaluations", "evaluation_detail",
+    "list_daily_reviews", "daily_review_summary", "daily_review_detail",
+    "start_daily_review", "acquire_live_daily_review",
 )
 
 
@@ -41,7 +43,7 @@ def service_contract_ready() -> bool:
 
 ROOT = Path(__file__).resolve().parent
 
-NAVIGATION = ["案例演示", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融"]
+NAVIGATION = ["案例演示", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
 
 DEMO_CASES = {
     "成功研究：贵州茅台": {
@@ -800,6 +802,217 @@ def tasks() -> None:
                 st.rerun()
 
 
+def daily_review() -> None:
+    """Read-only market breadth review built from versioned local snapshots,
+    with an optional on-demand live acquisition button."""
+    st.markdown("### 每日复盘 · 市场广度")
+    st.caption("默认离线演示；点击下方按钮可按需拉取 Tushare 实时数据。缺数据标注「未覆盖」，离线演示快照明确标记 synthetic_demo。")
+
+    # ---- On-demand live acquisition bar ----
+    acq_col1, acq_col2, acq_col3 = st.columns([3, 1.5, 1.5])
+    with acq_col1:
+        # Default: today in YYYYMMDD format; user can override.
+        today_str = date.today().strftime("%Y%m%d")
+        live_date = st.text_input(
+            "采集日期（YYYYMMDD）",
+            value=today_str,
+            key="dr_live_date",
+            help="仅支持已过去的交易日。周末/节假日/盘中时段会拦截并提示；建议填最近完整交易日（如上周五）。",
+        )
+    with acq_col2:
+        if st.button("📡 获取实时数据", key="dr_acquire_btn", type="primary",
+                     help="混合实时采集：指数 Tushare + 涨停/板块/广度/资金流 AkShare（免费源）。\n需要 .env 中已配置 TUSHARE_TOKEN；任一源不可用对应模块留空，绝不编数据。"):
+            # --- Date validation: block future / same-day during market hours ---
+            _date_err = None
+            try:
+                ld = datetime.strptime(live_date, "%Y%m%d").date()
+                now = datetime.now()
+                today_val = now.date()
+                if ld > today_val:
+                    _date_err = f"日期 {live_date} 是未来日期，无法采集。请填已过去的交易日。"
+                elif ld == today_val:
+                    # Chinese A-share market: 9:30-11:30, 13:00-15:00 Mon-Fri
+                    _hour = now.hour
+                    _wd = now.weekday()  # 0=Mon ... 6=Sun
+                    if _wd >= 5:
+                        _date_err = f"今天 {live_date} 是周末，休市。请填最近交易日（如上周五）。"
+                    elif _hour < 16:
+                        _date_err = (
+                            f"今天 {live_date} 尚在交易时段内（当前 {_hour}:{now.minute:02d}），"
+                            f"Tushare 盘后数据尚未更新。建议填最近完整交易日（如上周五），"
+                            f"或等到 16:00 后再试。"
+                        )
+            except ValueError:
+                _date_err = f"日期格式错误：'{live_date}' 不是有效的 YYYYMMDD 格式。"
+
+            if _date_err:
+                st.warning(_date_err, icon=":material/event_busy:")
+            else:
+                with st.spinner(f"正在混合采集（Tushare + AkShare + LLM润色）{live_date} 的实时数据…"):
+                    try:
+                        result = service.acquire_live_daily_review(live_date)
+                        if result["status"] == "ok":
+                            st.success(result["message"], icon=":material/cloud_done:")
+                            st.session_state["dr_auto_select_snapshot"] = result.get("snapshot_id")
+                            st.rerun()
+                        elif result["status"] in ("partial_error", "partial"):
+                            st.warning(result["message"], icon=":material/warning:")
+                            st.session_state["dr_auto_select_snapshot"] = result.get("snapshot_id")
+                            st.rerun()
+                        else:
+                            st.error(result["message"], icon=":material/error:")
+                    except Exception as exc:
+                        st.error(f"采集过程出错：{type(exc).__name__}: {str(exc)[:200]}", icon=":material/error:")
+    with acq_col3:
+        st.markdown("")
+        st.markdown("")
+        st.caption("💡 默认离线，按需实时；热点由 DeepSeek 润色")
+
+    st.divider()
+
+    reviews = service.list_daily_reviews()
+    if not reviews:
+        st.info("尚未发现本地市场复盘快照。可运行 `scripts\\collect_daily_review.py` 生成离线演示快照，"
+                "或通过上方「获取实时数据」按钮触发。")
+        return
+
+    labels = {f"{item['review_as_of']} · {item['id']}": item["id"] for item in reviews}
+    label_list = list(labels)
+
+    # Determine default index: auto-select newly acquired snapshot if available.
+    auto_id = st.session_state.pop("dr_auto_select_snapshot", None)
+    default_index = 0
+    if auto_id:
+        for idx, lbl in enumerate(label_list):
+            if labels[lbl] == auto_id:
+                default_index = idx
+                break
+
+    selected = st.selectbox("复盘快照", label_list, index=default_index, key="daily_review_picker")
+    snapshot_id = labels[selected]
+    summary = service.daily_review_summary(snapshot_id)
+    panorama = service.daily_review_detail(snapshot_id, "panorama")
+    hotspots = service.daily_review_detail(snapshot_id, "hotspots")
+
+    synth = summary["is_synthetic_demo"]
+    gate_status = summary["validation"]["status"]
+    st.markdown(
+        f'<div class="statusbar">'
+        f'<span class="badge snapshot">复盘时点 {summary["review_as_of"]}</span>'
+        f'<span class="badge {"warning" if synth else "verified"}">'
+        f'{"离线演示 synthetic_demo" if synth else "来源 " + str(summary["provider"])}</span>'
+        f'<span class="badge {"blocked" if gate_status == "blocked" else "verified"}">校验 {gate_status}</span>'
+        f'<span class="badge neutral">确定性结论 {"允许" if summary["validation"]["conclusion_allowed"] else "阻断"}</span>'
+        f'<span class="badge neutral">指数 {summary["index_count"]} · 板块 {summary["sector_count"]} · 涨停 {summary["limit_up_count"]}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    if synth:
+        st.warning("当前为离线演示快照（synthetic_demo），数值仅供架构演示，不代表真实行情，绝不用于实盘决策。", icon=":material/shield:")
+
+    st.markdown("#### 指数收盘")
+    indices = panorama["sections"]["index_closing"]["indices"]
+    cols = st.columns(min(len(indices), 3) or 1)
+    for idx, item in enumerate(indices):
+        with cols[idx % len(cols)]:
+            with st.container(border=True):
+                st.markdown(f"**{item['index_name']}**")
+                st.markdown(f"<div style='font-size:1.4rem'>{item['close']:.2f}</div>", unsafe_allow_html=True)
+                color = "#c0392b" if item["pct_change"] >= 0 else "#1c9a82"
+                sign = "+" if item["pct_change"] >= 0 else ""
+                st.markdown(
+                    f"<span style='color:{color};font-weight:650'>{sign}{item['pct_change']:.2f}% "
+                    f"({sign}{item['change']:.2f})</span> · 额 {item['amount_yi']:.0f}亿",
+                    unsafe_allow_html=True,
+                )
+                st.caption(f"Evidence: {item['evidence_id']}")
+
+    st.markdown("#### 板块涨幅")
+    sectors = hotspots["sections"]["hot_sectors"]["items"]
+    if sectors:
+        sdf = pd.DataFrame(sectors)
+        fig = px.bar(
+            sdf, x="sector_name", y="pct_change", color="pct_change",
+            color_continuous_scale=["#1c9a82", "#c9d3e0", "#c0392b"],
+            custom_data=["sector_type", "leading_stock", "net_inflow_yi", "evidence_id"],
+        )
+        fig.update_traces(hovertemplate=(
+            "板块: %{x}<br>涨幅: %{y:.2f}%<br>类型: %{customdata[0]}<br>领涨: %{customdata[1]}"
+            "<br>净流入: %{customdata[2]:.1f}亿<br>Evidence: %{customdata[3]}<extra></extra>"))
+        fig.update_layout(height=360, paper_bgcolor="#fff", plot_bgcolor="#fff",
+                          margin=dict(l=15, r=15, t=30, b=80), yaxis_title="%", xaxis_title="")
+        fig.update_coloraxes(showscale=False)
+        st.plotly_chart(fig, width="stretch", key=f"dr_sector_{snapshot_id}")
+    else:
+        st.info("板块数据未覆盖。")
+
+    left, right = st.columns(2)
+    with left:
+        st.markdown("#### 连板天梯")
+        ladder = panorama["sections"]["stock_dynamics"]["ladder"]
+        if ladder:
+            ldf = pd.DataFrame(ladder)[["name", "board_days", "close", "pct_change", "limit_order_yi", "logic"]]
+            st.dataframe(ldf, width="stretch", hide_index=True,
+                         column_config={"name": "名称", "board_days": "连板", "close": st.column_config.NumberColumn("价", format="%.2f"),
+                                        "pct_change": "涨%", "limit_order_yi": "封单(亿)", "logic": "逻辑"})
+        else:
+            st.info("涨停天梯未覆盖。")
+        st.markdown("#### 主力净流入 TOP")
+        inflow = hotspots["sections"]["top_net_inflow"]["items"]
+        if inflow:
+            idf = pd.DataFrame(inflow)
+            st.dataframe(idf, width="stretch", hide_index=True,
+                         column_config={"name": "名称", "net_inflow_yi": st.column_config.NumberColumn("净流入(亿)", format="%.1f"),
+                                        "main_inflow_yi": "主买(亿)", "evidence_id": "Evidence"})
+        else:
+            st.info("主力净流入未覆盖。")
+    with right:
+        st.markdown("#### 全景复盘结论")
+        st.write(panorama["sections"]["index_closing"]["summary"])
+        chars = panorama["sections"]["market_characteristics"]
+        if chars.get("up_ratio_percent") is not None:
+            st.write(
+                f"红盘占比 **{chars['up_ratio_percent']}%**，涨跌家数 {chars['up_count']}/{chars['down_count']}，"
+                f"涨停 {chars['limit_up_count']} / 跌停 {chars['limit_down_count']}，成交额 {chars['total_amount_yi']:.0f} 亿。"
+            )
+        dev = panorama["sections"]["deviation_review"]
+        if dev.get("supported"):
+            st.write(dev["observation"])
+        st.caption("次日推演 / 宏观快照：离线快照未覆盖，不输出确定性预测。")
+        st.markdown("#### 热点题材")
+        for theme in panorama["sections"]["core_drivers"]["themes"]:
+            with st.container(border=True):
+                st.markdown(f"**{theme['theme_name']}**")
+                if theme.get("ai_generated") and theme.get("ai_summary"):
+                    st.markdown(f"{theme['ai_summary']}  `AI 润色`")
+                    with st.popover("查看原始新闻"):
+                        st.write(theme["driver"])
+                        links = theme.get("news_links") or []
+                        if links:
+                            st.markdown("来源：" + "  ".join(f"[链接]({u})" for u in links if u))
+                else:
+                    st.write(theme["driver"])
+                st.caption("相关：" + "、".join(theme["related_stocks"]) + f" · {theme['evidence_id']}")
+
+    with st.expander("证据抽屉 · Evidence", expanded=False):
+        recs = panorama.get("evidence_records", [])
+        if recs:
+            rdf = pd.DataFrame([
+                {"Evidence ID": r["evidence_id"], "指标": r["metric"], "数值": r["value"],
+                 "单位": r["unit"], "期间": r.get("period"), "来源": r["source"]}
+                for r in recs
+            ])
+            st.dataframe(rdf, width="stretch", hide_index=True, height=360,
+                         column_config={"Evidence ID": "Evidence ID",
+                                        "数值": st.column_config.NumberColumn("数值", format="%.4f")})
+            export = {"snapshot_id": snapshot_id, "research_as_of": panorama["research_as_of"],
+                      "validation": panorama["validation"], "evidence_records": recs}
+            st.download_button("下载全部证据（JSON）", json.dumps(export, ensure_ascii=False, indent=2),
+                               f"{snapshot_id}_evidence.json", "application/json", icon=":material/download:")
+        else:
+            st.info("该快照暂无可导出数值证据。")
+
+
 def main() -> None:
     style()
     if not service_contract_ready():
@@ -814,6 +1027,9 @@ def main() -> None:
         st.caption("RESEARCH TERMINAL v0.2\n\n多快照 · 只读工作台")
     if page == "案例演示":
         demo_cases(catalog)
+        return
+    if page == "每日复盘":
+        daily_review()
         return
     snapshot, metadata = load_research(choices[selected_label])
     header(snapshot, metadata)

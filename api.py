@@ -270,3 +270,65 @@ def report(snapshot_id: str) -> ApiEnvelope:
 @app.get("/api/research/{snapshot_id}/artifacts")
 def artifacts(snapshot_id: str) -> ApiEnvelope:
     return _research_result(service.research_artifacts, snapshot_id)
+
+
+# ---------------------------------------------------------------------------
+# Daily market review (新增；复用同一 ApiEnvelope 契约)
+# ---------------------------------------------------------------------------
+class DailyReviewRequest(BaseModel):
+    review_date: str = Field(pattern=r"^\d{8}$", description="Inclusive YYYYMMDD date.")
+
+
+def _daily_review_meta(snapshot_id: str, data: dict[str, Any] | None = None) -> dict[str, Any]:
+    from src.cn.daily_review.provider import DailyReviewSnapshotProvider
+    from src.cn.daily_review.gate import review_gate
+
+    payload = service.load_market_review(snapshot_id)
+    provider = DailyReviewSnapshotProvider.from_payload(payload)
+    gate = review_gate(provider.snapshot)
+    evidence = (data or {}).get("evidence_ids") or []
+    return _meta(
+        snapshot_id=snapshot_id, research_as_of=payload.get("research_as_of"),
+        provider=payload.get("provider"), currency="CNY",
+        evidence_ids=evidence, validation_status=gate.status,
+        data_coverage={"synthetic_demo": provider.is_synthetic_demo()},
+        freshness={"research_as_of": payload.get("research_as_of")},
+    )
+
+
+def _daily_review_result(fn: Callable[..., dict[str, Any]], snapshot_id: str, *args: Any, **kwargs: Any) -> dict[str, Any]:
+    try:
+        data = fn(snapshot_id, *args, **kwargs)
+        return _ok(data, meta=_daily_review_meta(snapshot_id, data))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={"code": "MARKET_REVIEW_NOT_FOUND", "message": "Market review snapshot was not found."}) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_REQUEST", "message": str(exc)}) from exc
+
+
+@app.get("/api/daily-review")
+def list_daily_reviews() -> ApiEnvelope:
+    return _ok({"items": service.list_daily_reviews()})
+
+
+@app.get("/api/daily-review/{snapshot_id}/summary")
+def daily_review_summary(snapshot_id: str) -> ApiEnvelope:
+    return _daily_review_result(service.daily_review_summary, snapshot_id)
+
+
+@app.get("/api/daily-review/{snapshot_id}/panorama")
+def daily_review_panorama(snapshot_id: str) -> ApiEnvelope:
+    return _daily_review_result(service.daily_review_detail, snapshot_id, "panorama")
+
+
+@app.get("/api/daily-review/{snapshot_id}/hotspots")
+def daily_review_hotspots(snapshot_id: str) -> ApiEnvelope:
+    return _daily_review_result(service.daily_review_detail, snapshot_id, "hotspots")
+
+
+@app.post("/api/daily-review/acquire", status_code=202)
+def acquire_daily_review(request: DailyReviewRequest) -> ApiEnvelope:
+    try:
+        return _ok(service.start_daily_review(request.review_date))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail={"code": "INVALID_REQUEST", "message": str(exc)}) from exc

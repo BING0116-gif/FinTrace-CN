@@ -1180,3 +1180,253 @@ def research_artifacts(snapshot_id: str) -> dict[str, Any]:
         "provider": payload.get("provider", "snapshot"), "validation_status": validation["status"],
         "artifacts": artifacts,
     }
+
+
+# ---------------------------------------------------------------------------
+# Daily market review (新增，增量；不改动现有 research_* 契约)
+# ---------------------------------------------------------------------------
+MARKET_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "snapshots" / "market"
+DAILY_REVIEW_KIND = "daily_review"
+
+
+def ensure_default_market_review() -> None:
+    """Deterministically seed the default illustrative market snapshot if absent.
+
+    The ``data/`` tree is git-ignored, so a fresh checkout ships without any
+    market fixture.  To keep the offline demo working out-of-the-box we generate
+    the fixed ``synthetic_demo`` snapshot locally — no network, no API key, fully
+    reproducible, and clearly flagged so it never impersonates a live review.
+    """
+    if MARKET_SNAPSHOT_DIR.exists() and any(MARKET_SNAPSHOT_DIR.glob("MARKET_*.json")):
+        return
+    try:
+        from .daily_review.collector import collect_daily_review, write_market_snapshot
+        payload = collect_daily_review("20260814", live=False)
+        write_market_snapshot(payload, MARKET_SNAPSHOT_DIR)
+    except Exception:  # pragma: no cover - defensive only; never block listing
+        pass
+
+
+def load_market_review(snapshot_id: str) -> dict[str, Any]:
+    """Load one market review snapshot payload by id (offline, no network)."""
+    for path in MARKET_SNAPSHOT_DIR.glob("MARKET_*.json"):
+        payload = _read_json(path)
+        if payload.get("snapshot_id") == snapshot_id:
+            return payload
+    raise KeyError(f"Unknown market review snapshot_id: {snapshot_id}")
+
+
+def list_daily_reviews() -> list[dict[str, str]]:
+    """Inventory local market review snapshots; seed the default offline fixture if none exist."""
+    ensure_default_market_review()
+    items: list[dict[str, str]] = []
+    if not MARKET_SNAPSHOT_DIR.exists():
+        return items
+    for path in sorted(MARKET_SNAPSHOT_DIR.glob("MARKET_*.json")):
+        payload = _read_json(path)
+        meta = payload.get("source_metadata") or {}
+        items.append({
+            "id": payload.get("snapshot_id"),
+            "review_as_of": payload.get("research_as_of"),
+            "provider": payload.get("provider"),
+            "data_quality": payload.get("data_quality"),
+            "synthetic_demo": bool(meta.get("synthetic_demo")),
+            "fetched_at": payload.get("fetched_at"),
+        })
+    return items
+
+
+def daily_review_summary(snapshot_id: str) -> dict[str, Any]:
+    """Headline summary for one market review snapshot (read-only)."""
+    from .daily_review.provider import DailyReviewSnapshotProvider
+    from .daily_review.gate import review_gate
+
+    payload = load_market_review(snapshot_id)
+    provider = DailyReviewSnapshotProvider.from_payload(payload)
+    snap = provider.snapshot
+    gate = review_gate(snap)
+    breadth = snap.breadth
+    return {
+        "snapshot_id": snapshot_id,
+        "review_as_of": snap.research_as_of,
+        "provider": snap.provider,
+        "data_quality": snap.data_quality,
+        "is_synthetic_demo": provider.is_synthetic_demo(),
+        "index_count": len(snap.indices),
+        "sector_count": len(snap.sectors),
+        "limit_up_count": len(snap.limit_up),
+        "breadth": (
+            None if breadth is None else {
+                "up_count": breadth.up_count, "down_count": breadth.down_count,
+                "limit_up_count": breadth.limit_up_count, "total_amount_yi": breadth.total_amount_yi,
+            }
+        ),
+        "validation": {
+            "status": gate.status, "conclusion_allowed": gate.conclusion_allowed,
+            "warnings": gate.warnings, "errors": gate.errors,
+        },
+    }
+
+
+def daily_review_detail(snapshot_id: str, path: str = "panorama") -> dict[str, Any]:
+    """Run one analysis path (panorama | hotspots) over a market review snapshot."""
+    from .daily_review.provider import DailyReviewSnapshotProvider
+    from .daily_review.analysis import panorama_review, hotspot_review
+
+    payload = load_market_review(snapshot_id)
+    provider = DailyReviewSnapshotProvider.from_payload(payload)
+    snap = provider.snapshot
+    if path == "hotspots":
+        return hotspot_review(snap)
+    return panorama_review(snap)
+
+
+def start_daily_review(review_date: str) -> dict[str, Any]:
+    """Queue an offline, deterministic daily review snapshot build.
+
+    Offline-first: it produces a clearly flagged ``synthetic_demo`` snapshot with
+    no network dependency.  Live Tushare acquisition is intentionally NOT the
+    default here; the offline artifact guarantees a reproducible demo/test and
+    never impersonates a live market review.
+    """
+    from .daily_review.collector import collect_daily_review, write_market_snapshot
+
+    if not (len(review_date) == 8 and review_date.isdigit()):
+        raise ValueError("review_date must be YYYYMMDD.")
+    task = _new_task("CN_MARKET", DAILY_REVIEW_KIND)
+    task.update({
+        "status": "queued", "progress_percent": 0, "review_date": review_date,
+        "idempotency_key": f"daily_review:{review_date}",
+    })
+    _save_task(task)
+    try:
+        payload = collect_daily_review(review_date, live=False)
+        write_market_snapshot(payload, MARKET_SNAPSHOT_DIR)
+        task.update({
+            "status": "succeeded", "progress_percent": 100,
+            "snapshot_id": payload["snapshot_id"],
+            "message": "已生成离线复盘快照（synthetic_demo）；如需实时行情请另行采集。",
+        })
+        _transition(task, "succeeded", step="collect", message=task["message"])
+    except Exception as exc:
+        task.update({
+            "status": "failed", "progress_percent": 100,
+            "error_type": type(exc).__name__, "error": str(exc),
+        })
+        _transition(task, "failed", step="collect", message="复盘快照生成失败。")
+    return task
+
+
+def acquire_live_daily_review(review_date: str) -> dict[str, Any]:
+    """Attempt a live Tushare daily review acquisition and persist the result.
+
+    This is the on-demand live path triggered by the workbench UI button.
+    Unlike ``start_daily_review`` (which always produces offline demo), this
+    function attempts a real API pull when a token is available.
+
+    Returns a dict with keys: status (ok/error), snapshot_id, provider,
+    is_synthetic_demo, data_quality, index_count, sector_count,
+    limit_up_count, message.
+    """
+    from .daily_review.collector import collect_daily_review, load_tushare_token, write_market_snapshot
+
+    if not (len(review_date) == 8 and review_date.isdigit()):
+        raise ValueError("review_date must be YYYYMMDD.")
+
+    # Auto-discover token; if none, inform caller rather than failing silently.
+    token = load_tushare_token()
+    if not token:
+        return {
+            "status": "error",
+            "snapshot_id": None,
+            "provider": None,
+            "is_synthetic_demo": False,
+            "data_quality": None,
+            "index_count": 0,
+            "sector_count": 0,
+            "limit_up_count": 0,
+            "message": (
+                "未配置 TUSHARE_TOKEN，无法拉取实时数据。"
+                "请在项目根目录 .env 文件中设置 TUSHARE_TOKEN=<你的token>。"
+            ),
+        }
+
+    try:
+        payload = collect_daily_review(review_date, token=token, live=True, force_refresh=True)
+        path = write_market_snapshot(payload, MARKET_SNAPSHOT_DIR)
+        meta = payload.get("source_metadata") or {}
+        synth = bool(meta.get("synthetic_demo"))
+        data = payload.get("data") or {}
+        partial = bool(meta.get("partial"))
+
+        def _n(key: str) -> int:
+            v = data.get(key)
+            return len(v) if isinstance(v, list) else (1 if v is not None else 0)
+
+        sections = {
+            "指数": _n("indices"), "板块": _n("sectors"),
+            "涨停": _n("limit_up"), "资金流": _n("money_flow"), "广度": _n("breadth"),
+        }
+        uncovered = [name for name, cnt in sections.items() if cnt == 0]
+        srcs = meta.get("sources") or {}
+
+        if synth:
+            # Internally fell back to the offline demo snapshot.
+            status = "partial"
+            msg = (
+                f"实时采集失败，已回退到离线演示快照（synthetic_demo）。\n"
+                f"快照已写入: {path.name}\n"
+                f"请检查 TUSHARE_TOKEN 与网络连接后重试。"
+            )
+        else:
+            status = "partial" if partial else "ok"
+            msg = (
+                f"实时混合采集完成（指数 {srcs.get('indices')} + 涨停/板块/广度/资金流 {srcs.get('limit_up')}）。\n"
+                f"快照已写入: {path.name}\n"
+                f"Provider: {payload.get('provider')}\n"
+                f"指数 {sections['指数']} · 板块 {sections['板块']} · 涨停 {sections['涨停']} · "
+                f"资金流 {sections['资金流']} · 广度 {'✓' if sections['广度'] else '✗'}"
+            )
+            if uncovered:
+                msg += f"\n⚠️ 未覆盖模块: {', '.join(uncovered)}（对应数据源暂不可用，已留空，绝不编数据）"
+        return {
+            "status": status,
+            "snapshot_id": payload.get("snapshot_id"),
+            "provider": payload.get("provider"),
+            "is_synthetic_demo": synth,
+            "data_quality": payload.get("data_quality"),
+            "partial": partial,
+            "index_count": len(data.get("indices", [])),
+            "sector_count": len(data.get("sectors", [])),
+            "limit_up_count": len(data.get("limit_up", [])),
+            "message": msg,
+        }
+    except Exception as exc:
+        # On any failure, fall back to offline so the UI still has something to show.
+        try:
+            fallback = collect_daily_review(review_date, live=False)
+            write_market_snapshot(fallback, MARKET_SNAPSHOT_DIR)
+            fb_data = fallback.get("data") or {}
+            return {
+                "status": "partial_error",
+                "snapshot_id": fallback.get("snapshot_id"),
+                "provider": fallback.get("provider"),
+                "is_synthetic_demo": True,
+                "data_quality": fallback.get("data_quality"),
+                "index_count": len(fb_data.get("indices", [])),
+                "sector_count": len(fb_data.get("sectors", [])),
+                "limit_up_count": len(fb_data.get("limit_up", [])),
+                "message": f"实时采集失败: {exc}\n已自动回退到离线演示快照。",
+            }
+        except Exception:
+            return {
+                "status": "error",
+                "snapshot_id": None,
+                "provider": None,
+                "is_synthetic_demo": False,
+                "data_quality": None,
+                "index_count": 0,
+                "sector_count": 0,
+                "limit_up_count": 0,
+                "message": f"实时采集与离线回退均失败: {exc}",
+            }
