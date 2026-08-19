@@ -6,6 +6,7 @@ Run: .venv\\Scripts\\streamlit run workbench.py
 from __future__ import annotations
 
 import json
+import os
 import importlib
 from pathlib import Path
 from datetime import date, datetime, timedelta
@@ -17,6 +18,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from src.cn import workbench_service as service
+from src.cn.daily_review.report import render_report_html
 
 # Streamlit can keep imported modules alive across script reruns.  Reload the
 # local service module so a changed UI cannot call a stale service contract.
@@ -909,6 +911,24 @@ def daily_review() -> None:
     )
     if synth:
         st.warning("当前为离线演示快照（synthetic_demo），数值仅供架构演示，不代表真实行情，绝不用于实盘决策。", icon=":material/shield:")
+
+    # ---- Full HTML report: system endpoint link + offline download fallback ----
+    API_BASE = os.getenv("FINTRACE_API_BASE", "http://localhost:8000")
+    report_url = f"{API_BASE}/api/daily-review/{snapshot_id}/report"
+    try:
+        html_bytes = render_report_html(service.load_market_review(snapshot_id)).encode("utf-8")
+    except Exception:
+        html_bytes = None
+    rcol1, rcol2 = st.columns([1, 1])
+    with rcol1:
+        st.link_button("🌐 打开完整报告 ↗", report_url,
+                       help="新标签页打开 API 路由 /api/daily-review/{id}/report 生成的独立 HTML 报告（需 API 服务在运行）。")
+    with rcol2:
+        if html_bytes is not None:
+            st.download_button("⬇️ 下载 HTML 报告", data=html_bytes,
+                               file_name=f"{snapshot_id}.html", mime="text/html",
+                               help="无需 API 服务：本页用同一套渲染逻辑直接生成并下载 HTML。")
+    st.caption("报告渲染所选快照（离线演示或刚采集的实时）；每条数据带 evidence_id，synthetic_demo 明确标注非实时。")
 
     st.markdown("#### 指数收盘")
     indices = panorama["sections"]["index_closing"]["indices"]

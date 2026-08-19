@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -324,6 +325,25 @@ def daily_review_panorama(snapshot_id: str) -> ApiEnvelope:
 @app.get("/api/daily-review/{snapshot_id}/hotspots")
 def daily_review_hotspots(snapshot_id: str) -> ApiEnvelope:
     return _daily_review_result(service.daily_review_detail, snapshot_id, "hotspots")
+
+
+@app.get("/api/daily-review/{snapshot_id}/report", response_class=HTMLResponse)
+def daily_review_report(snapshot_id: str) -> str:
+    """Serve the standalone, CDN-free HTML market-review report for a snapshot.
+
+    Renders whatever snapshot is selected (offline demo OR a freshly acquired
+    live one) -- never fabricates.  Returns 404 if the snapshot is missing.
+    """
+    from src.cn.daily_review.report import render_report_html
+
+    try:
+        payload = service.load_market_review(snapshot_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=404,
+            detail={"code": "MARKET_REVIEW_NOT_FOUND", "message": "Market review snapshot was not found."},
+        ) from exc
+    return render_report_html(payload)
 
 
 @app.post("/api/daily-review/acquire", status_code=202)
