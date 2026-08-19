@@ -912,23 +912,41 @@ def daily_review() -> None:
     if synth:
         st.warning("当前为离线演示快照（synthetic_demo），数值仅供架构演示，不代表真实行情，绝不用于实盘决策。", icon=":material/shield:")
 
-    # ---- Full HTML report: system endpoint link + offline download fallback ----
-    API_BASE = os.getenv("FINTRACE_API_BASE", "http://localhost:8000")
-    report_url = f"{API_BASE}/api/daily-review/{snapshot_id}/report"
+    # ---- Full HTML report: render locally inline (no API server dependency) ----
+    # 设计说明：UI 永远不应该要求用户去启动另一个服务才能看到内容；HTML 就在
+    # 当前 streamlit 进程内用 src.cn.daily_review.report 渲染，sandbox 友好、
+    # 不打断注意力。API 路由 /api/daily-review/{id}/report 仍然存在供 cURL /
+    # CI 截图测试，外部脚本可独立使用，与本页 UI 解耦。
     try:
-        html_bytes = render_report_html(service.load_market_review(snapshot_id)).encode("utf-8")
-    except Exception:
+        snapshot = service.load_market_review(snapshot_id)
+        html_bytes = render_report_html(snapshot).encode("utf-8")
+    except Exception as exc:
         html_bytes = None
-    rcol1, rcol2 = st.columns([1, 1])
-    with rcol1:
-        st.link_button("🌐 打开完整报告 ↗", report_url,
-                       help="新标签页打开 API 路由 /api/daily-review/{id}/report 生成的独立 HTML 报告（需 API 服务在运行）。")
-    with rcol2:
-        if html_bytes is not None:
-            st.download_button("⬇️ 下载 HTML 报告", data=html_bytes,
-                               file_name=f"{snapshot_id}.html", mime="text/html",
-                               help="无需 API 服务：本页用同一套渲染逻辑直接生成并下载 HTML。")
-    st.caption("报告渲染所选快照（离线演示或刚采集的实时）；每条数据带 evidence_id，synthetic_demo 明确标注非实时。")
+        st.error(f"完整报告渲染失败：{exc}", icon=":material/error:")
+    if html_bytes is not None:
+        import streamlit.components.v1 as components  # srcdoc iframe 隔离渲染
+        with st.expander("📄 在页面内完整查看报告 ↓（点击展开，无需额外服务）", expanded=False):
+            st.caption(
+                f"选中快照：`{snapshot_id}` · 大小 "
+                f"{len(html_bytes)//1024} KB · 数据全部带 evidence_id 并标注 synthetic_demo。"
+            )
+            components.html(html_bytes, height=1800, scrolling=True)
+        d_col1, d_col2 = st.columns([1, 3])
+        with d_col1:
+            st.download_button(
+                "⬇️ 下载 HTML 报告",
+                data=html_bytes,
+                file_name=f"{snapshot_id}.html",
+                mime="text/html",
+                help="下载到本地后任意浏览器打开（同样不依赖 API）。",
+            )
+        with d_col2:
+            st.caption(
+                "页内查看与下载均在 streamlit 进程内完成，不依赖 uvicorn。"
+                "如启 `uvicorn api:app` 也可通过 `"
+                f"{os.getenv('FINTRACE_API_BASE', 'http://localhost:8000')}"
+                f"/api/daily-review/{snapshot_id}/report` 获取同一份 HTML。"
+            )
 
     st.markdown("#### 指数收盘")
     indices = panorama["sections"]["index_closing"]["indices"]
