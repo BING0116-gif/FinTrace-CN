@@ -20,6 +20,6 @@
 
 ## 当前范围
 
-EV/EBITDA 及 DCF 交叉校验仍是后续工作。仓库保留的 Excel DCF 能力独立存在；在未携带同等证据与 Validator 约束前，不应将其表述为 FinTrace-CN 的可验证同行估值结果。
+EV/EBITDA 与 DCF 不属于当前已验证主线。在它们具备同等证据、时点和 Validator 约束前，不应被表述为 FinTrace-CN 已支持的估值结果。
 
 本软件仅用于研究辅助，不构成投资建议。

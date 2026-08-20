@@ -29,7 +29,7 @@ LLM 可以从已提供工具中选择操作并撰写受约束文字；它不负�
 
 ## 离线执行
 
-`SnapshotProvider` 读取固定 JSON 快照。离线报告、离线测试及 `--dry-run` 消融实验不依赖网络、Yahoo、代理、Tushare 或 LLM API Key。真实模型评测仅访问配置的模型 API，金融数据工具仍只使用本地快照。
+`SnapshotProvider` 读取固定 JSON 快照。离线报告、离线测试及 `--dry-run` 消融实验不依赖网络、Tushare 或 LLM API Key。fresh clone 会生成明确标记的 illustrative 快照；真实模型评测仅访问配置的模型 API，金融数据工具仍只使用本地快照。
 
 ## 审计工件
 

@@ -1,39 +1,27 @@
 FROM python:3.11-slim
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV DATA_PATH=/data
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    FINTRACE_CACHE_DIR=/app/data/.cache
 
-# Install system dependencies for newspaper3k and other packages
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    git \
-    libxml2-dev \
-    libxslt-dev \
-    libjpeg-dev \
-    zlib1g-dev \
-    libpng-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Set working directory
 WORKDIR /app
 
-# Copy and install Python dependencies first (for better Docker caching)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m pip install --upgrade pip && \
+    python -m pip install -r requirements.txt && \
+    useradd --create-home --uid 10001 fintrace
 
-# Copy source code
 COPY src/ src/
-COPY prompts/ prompts/
-COPY main.py .
+COPY scripts/ scripts/
+COPY api.py workbench.py ./
+COPY .streamlit/ .streamlit/
 
-# Create data directory for outputs
-RUN mkdir -p /data
+RUN mkdir -p /app/data /app/output && chown -R fintrace:fintrace /app
+USER fintrace
 
-# Use a shared volume for outputs
-VOLUME ["/data"]
+EXPOSE 8501
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)" || exit 1
 
-# Set the entry point
-ENTRYPOINT ["python", "main.py"]
+CMD ["sh", "-c", "python scripts/bootstrap_demo.py && python -m streamlit run workbench.py --server.address=0.0.0.0 --server.port=8501"]

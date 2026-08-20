@@ -1,0 +1,18 @@
+# FinTrace-CN · Apple-inspired Streamlit theme
+# 单一强调色 Action Blue · 羊皮纸画布 · 零装饰阴影
+# A股行情语义色：涨红跌绿（仅用于行情/校验，与品牌色分离）
+
+[theme]
+base = "light"
+primaryColor = "#0066cc"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f5f7"
+textColor = "#1d1d1f"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = true
+
+[browser]
+gatherUsageStats = false

@@ -20,7 +20,7 @@ class StockAnalystLogger:
         Initialize stock analyst logger with both console and file output.
         
         Args:
-            ticker: Stock ticker symbol (e.g., 'NVDA')
+            ticker: Stock ticker symbol (e.g., '600519.SH')
             base_path: Base directory for logs
             console_level: Console logging level ('DEBUG', 'INFO', 'WARNING', 'ERROR')
             session_name: Optional session identifier for chatbot continuity

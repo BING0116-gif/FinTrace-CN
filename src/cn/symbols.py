@@ -1,8 +1,8 @@
 """Canonical A-share symbol parsing.
 
-Internal code uses ``600519.SH``/``000333.SZ``/``920xxx.BJ``.  Provider-specific
-spellings (for example Yahoo's ``.SS``) must be translated at an adapter edge,
-never stored in a snapshot or passed between domain services.
+Internal code uses ``600519.SH``/``000333.SZ``/``920xxx.BJ``. Provider-specific
+spellings must be translated at an adapter edge, never stored in snapshots or
+passed between domain services.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import re
 from .errors import UnsupportedSymbolError
 
 
-_WITH_SUFFIX = re.compile(r"^(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ|SS)$", re.IGNORECASE)
+_WITH_SUFFIX = re.compile(r"^(?P<code>\d{6})\.(?P<suffix>SH|SZ|BJ)$", re.IGNORECASE)
 _BARE_CODE = re.compile(r"^\d{6}$")
 
 
@@ -48,7 +48,6 @@ def _infer_exchange(code: str) -> str:
 def normalize_cn_symbol(value: str) -> CanonicalSymbol:
     """Normalize a supported A-share code to its canonical internal form.
 
-    ``.SS`` is accepted only as an import compatibility alias and becomes ``.SH``.
     Historic Beijing Exchange aliases (83/87/88 prefixes) intentionally fail: a
     future alias table must map them to their official ``920xxx.BJ`` successors
     instead of guessing.
@@ -63,7 +62,7 @@ def normalize_cn_symbol(value: str) -> CanonicalSymbol:
 
     code = match.group("code")
     suffix = match.group("suffix").upper()
-    exchange = "SH" if suffix == "SS" else suffix
+    exchange = suffix
     inferred = _infer_exchange(code)
     if exchange != inferred:
         raise UnsupportedSymbolError(

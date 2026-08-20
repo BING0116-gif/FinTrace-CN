@@ -1,13 +1,42 @@
-version: '3.8'
-
 services:
-  stock-analyst:
-    image: fuzanwenn/stock-analyst:latest
-    container_name: stock-analyst
-    volumes:
-      - ./data:/data
+  workbench:
+    build: .
+    image: fintrace-cn:local
+    ports:
+      - "8501:8501"
     environment:
-      - SERPAPI_API_KEY=${SERPAPI_API_KEY}
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-    # Override entrypoint for interactive usage
-    # command: --help
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - fintrace-data:/app/data
+      - fintrace-output:/app/output
+    restart: unless-stopped
+
+  api:
+    image: fintrace-cn:local
+    depends_on:
+      workbench:
+        condition: service_healthy
+    command: ["sh", "-c", "python scripts/bootstrap_demo.py && python -m uvicorn api:app --host 0.0.0.0 --port 8000"]
+    ports:
+      - "8000:8000"
+    environment:
+      TUSHARE_TOKEN: ${TUSHARE_TOKEN:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    volumes:
+      - fintrace-data:/app/data
+      - fintrace-output:/app/output
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  fintrace-data:
+  fintrace-output:

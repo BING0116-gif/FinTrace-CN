@@ -18,6 +18,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from src.cn import workbench_service as service
+from src.cn.demo_data import BLOCKED_DEMO_SNAPSHOT_ID, DEMO_SNAPSHOT_ID
 from src.cn.daily_review.report import render_report_html
 
 # Streamlit can keep imported modules alive across script reruns.  Reload the
@@ -49,14 +50,14 @@ NAVIGATION = ["案例演示", "研究总览", "市场与行情", "财务表现",
 
 DEMO_CASES = {
     "成功研究：贵州茅台": {
-        "snapshot_id": "600519.SH_20260810_tushare_v1",
-        "status": "pass",
-        "summary": "固定快照、完整证据链和同业估值输入均通过校验，可打开研究报告。",
+        "snapshot_id": DEMO_SNAPSHOT_ID,
+        "expected_allowed": True,
+        "summary": "确定性演示快照、完整证据链和同行估值输入允许输出结论；所有数值均明确标记为 illustrative。",
         "next_page": "研究报告",
     },
     "Validator 阻断：缺少关键估值输入": {
-        "snapshot_id": "600519.SH_demo_missing_evidence_v1",
-        "status": "blocked",
+        "snapshot_id": BLOCKED_DEMO_SNAPSHOT_ID,
+        "expected_allowed": False,
         "summary": "同一套确定性规则发现总股本证据缺失，因此隐藏估值结论和报告。",
         "next_page": "证据与校验",
     },
@@ -119,15 +120,23 @@ def demo_cases(catalog: list[dict[str, str]]) -> None:
     for name, case in DEMO_CASES.items():
         with st.container(border=True):
             st.subheader(name)
-            status_label = "通过" if case["status"] == "pass" else "已阻断"
-            st.badge(status_label, icon=":material/check_circle:" if case["status"] == "pass" else ":material/block:", color="green" if case["status"] == "pass" else "red")
             st.write(case["summary"])
             st.caption(f"Snapshot ID: {case['snapshot_id']}")
             if case["snapshot_id"] not in available:
-                st.warning("演示快照尚未生成。请先运行 scripts\\create_golden_baseline.py。")
+                st.warning("演示快照生成失败，请运行 python scripts/bootstrap_demo.py 后重试。")
             else:
+                validation = service.research_validation(case["snapshot_id"])
+                allowed = bool(validation["conclusion_allowed"])
+                status_label = "允许输出" if allowed else "已阻断"
+                st.badge(
+                    status_label,
+                    icon=":material/check_circle:" if allowed else ":material/block:",
+                    color="green" if allowed else "red",
+                )
+                if allowed != bool(case["expected_allowed"]):
+                    st.error("演示快照的实际门禁结果与预期不一致，请先运行测试或重新生成快照。")
                 st.button(
-                    "打开并查看证据链" if case["status"] == "pass" else "查看阻断原因",
+                    "打开并查看证据链" if allowed else "查看阻断原因",
                     key=f"demo_{case['snapshot_id']}",
                     on_click=open_demo_case,
                     args=(case["snapshot_id"], case["next_page"]),
@@ -135,34 +144,330 @@ def demo_cases(catalog: list[dict[str, str]]) -> None:
     st.info("成功案例用于说明可复现研究如何交付；阻断案例用于说明系统宁可不给结论，也不以缺失数据凑出答案。", icon=":material/shield:")
 
 
+# Apple-inspired design tokens.  All colors come from the design system
+# page; Chinese rendering uses Sarasa Gothic SC when available, falling back
+# to system sans-serif so SF Pro / PingFang / Noto resolve natively.
+APPLE_TOKENS = {
+    "ink": "#1D1D1F",
+    "ink_muted_48": "#7A7A7A",
+    "ink_muted_64": "#6E6E73",
+    "ink_muted_80": "#535359",
+    "primary": "#0066CC",
+    "primary_focus": "#0071E3",
+    "primary_on_dark": "#2997FF",
+    "canvas": "#FFFFFF",
+    "parchment": "#F5F5F7",
+    "pearl": "#FAFAFC",
+    "surface_chip_translucent": "#D2D2D7",
+    "divider_soft": "#F0F0F0",
+    "hairline": "#E0E0E0",
+    "tile_dark": "#272729",
+    "success_bg": "#DFF4EB",
+    "success_fg": "#1E7E50",
+    "warning_bg": "#FFF1CF",
+    "warning_fg": "#8A5A00",
+    "blocked_bg": "#FDE4E1",
+    "blocked_fg": "#A33B32",
+    "snapshot_bg": "#E8EFFA",
+    "snapshot_fg": "#315D9D",
+    # A-share market semantics: 涨红跌绿 (only for quote / context where it
+    # matches real trading conventions).  Brand color is never used for these.
+    "quote_up": "#C0392B",
+    "quote_down": "#1C9A82",
+    "evidence": "#0066CC",
+}
+
+
+def _plotly_template() -> go.layout.Template:
+    """Return an Apple-inspired Plotly template shared across the workbench."""
+    template = go.layout.Template()
+    template.layout.paper_bgcolor = APPLE_TOKENS["canvas"]
+    template.layout.plot_bgcolor = APPLE_TOKENS["canvas"]
+    template.layout.font = dict(
+        family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Sarasa Gothic SC', sans-serif",
+        color=APPLE_TOKENS["ink"],
+        size=13,
+    )
+    template.layout.title = dict(
+        font=dict(size=15, color=APPLE_TOKENS["ink"], family="Inter, 'Sarasa Gothic SC', sans-serif"),
+        x=0.02, xanchor="left",
+    )
+    template.layout.margin = dict(l=16, r=16, t=46, b=16)
+    template.layout.xaxis = dict(
+        showgrid=False, showline=False, zeroline=False,
+        tickfont=dict(size=11, color=APPLE_TOKENS["ink_muted_48"]),
+    )
+    template.layout.yaxis = dict(
+        showgrid=True, gridcolor=APPLE_TOKENS["divider_soft"],
+        zeroline=False, showline=False,
+        tickfont=dict(size=11, color=APPLE_TOKENS["ink_muted_48"]),
+    )
+    template.layout.colorway = [
+        APPLE_TOKENS["primary"],  # Action Blue — first/primary
+        "#1C9A82",                # teal accent (was #0F766E in old theme)
+        "#6D8FD5",                # muted blue (matches the existing financial bars)
+        APPLE_TOKENS["quote_up"],
+        APPLE_TOKENS["quote_down"],
+        APPLE_TOKENS["warning_fg"],
+        "#8E8E93",                # neutral gray
+    ]
+    template.layout.legend = dict(
+        orientation="h", y=1.1, x=0, xanchor="left",
+        font=dict(size=12, color=APPLE_TOKENS["ink"]),
+        bgcolor="rgba(0,0,0,0)",
+    )
+    return template
+
+
 def style() -> None:
-    st.set_page_config(page_title="FinTrace-CN | 研究工作台", page_icon="◈", layout="wide", initial_sidebar_state="expanded")
+    """Inject Apple-inspired CSS, register Plotly template, and set page meta."""
+    t = APPLE_TOKENS
+    px = importlib.import_module("plotly.io").templates
+    px["fintrace_apple"] = _plotly_template()  # type: ignore[index]
+    # Make Apple-inspired colors + fonts the workbench default so every
+    # fig.update_layout / px.* call inherits them automatically.
+    px.default = "fintrace_apple"
+
+    st.set_page_config(
+        page_title="FinTrace-CN | 研究工作台",
+        page_icon="◈",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     st.markdown(
-        """<style>
-        :root { --ink:#10233d; --muted:#667893; --line:#dde5ef; --navy:#0b1d35; --blue:#2c6bed; --teal:#00a7a0; --amber:#c78512; }
-        .stApp { background: #f4f7fb; color: var(--ink); }
-        section[data-testid="stSidebar"] { background: linear-gradient(180deg,#08182e,#102b4a); }
-        section[data-testid="stSidebar"] * { color:#dbe8f6 !important; }
-        section[data-testid="stSidebar"] .stRadio label { border-radius:8px; padding:7px 8px; }
-        .block-container { padding: 1.35rem 2.25rem 2rem; max-width: 1540px; }
-        .brand { font-size:1.15rem; font-weight:750; letter-spacing:.03em; color:#fff; margin:.2rem 0 1.6rem; }
-        .eyebrow { color:#5e718d; font-size:.74rem; letter-spacing:.12em; text-transform:uppercase; font-weight:700; margin-bottom:.35rem; }
-        h1 { font-size:1.8rem !important; letter-spacing:-.035em; margin-bottom:.1rem !important; }
-        h2 { font-size:1.12rem !important; margin-top:1.4rem !important; }
-        .subline { color:var(--muted); font-size:.9rem; }
-        .statusbar { display:flex; align-items:center; flex-wrap:wrap; gap:.55rem; padding:.65rem .85rem; background:#fff; border:1px solid var(--line); border-radius:10px; margin:1rem 0 1.3rem; box-shadow:0 2px 10px rgba(31,55,88,.035); }
-        .badge { display:inline-flex; align-items:center; gap:.35rem; padding:.25rem .55rem; border-radius:999px; font-size:.73rem; font-weight:650; }
-        .verified { background:#dff4eb; color:#137555; }.warning { background:#fff1cf; color:#8a5a00; }.blocked { background:#fde4e1; color:#a33b32; }.snapshot { background:#e8effa; color:#315d9d; }.neutral { background:#eef1f5; color:#536171; }
-        .card-note { font-size:.77rem; color:var(--muted); padding-top:.5rem; border-top:1px solid #edf0f4; }
-        [data-testid="stMetric"] { background:#fff; border:1px solid var(--line); border-radius:11px; padding:1.05rem 1.1rem; min-height:124px; box-shadow:0 2px 10px rgba(31,55,88,.035); }
-        [data-testid="stMetricLabel"] { color:var(--muted); font-weight:600; font-size:.78rem; }
-        [data-testid="stMetricValue"] { color:var(--ink); font-size:1.55rem; }
-        .panel { background:#fff; border:1px solid var(--line); border-radius:11px; padding:1rem 1.2rem; margin-bottom:1rem; }
-        .evidence { color:#2c6bed; font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.76rem; font-weight:600; }
-        .warn { border-left:3px solid var(--amber); background:#fffaf0; padding:.75rem .9rem; color:#684b14; border-radius:5px; }
-        .trace { border-left:2px solid #95b5ea; padding:.45rem 0 .45rem 1rem; margin-left:.5rem; }
-        .stButton>button { border-radius:7px; font-weight:600; }
-        </style>""",
+        f"""<style>
+:root {{
+  --ink: {t['ink']};
+  --muted: {t['ink_muted_48']};
+  --line: {t['hairline']};
+  --parchment: {t['parchment']};
+  --primary: {t['primary']};
+  --evidence: {t['evidence']};
+  --quote-up: {t['quote_up']};
+  --quote-down: {t['quote_down']};
+}}
+/* Apple-first font stack: SF Pro on macOS/iOS, Inter for cross-platform,
+   Sarasa Gothic SC for Chinese characters. */
+html, body, .stApp, [data-testid="stMarkdownContainer"], .stMarkdown, p, li, span, label {{
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+               'PingFang SC', 'Sarasa Gothic SC', 'Segoe UI', Roboto,
+               'Helvetica Neue', Arial, sans-serif !important;
+  -webkit-font-smoothing: antialiased;
+  color: var(--ink);
+}}
+.stApp {{ background: {t['canvas']}; }}
+/* Sub-nav: parchment frosted look (Apple sub-nav-frosted analog). */
+section[data-testid="stSidebar"] {{
+  background: {t['parchment']};
+  border-right: 1px solid {t['divider_soft']};
+}}
+section[data-testid="stSidebar"] * {{ color: {t['ink']} !important; }}
+section[data-testid="stSidebar"] .stRadio label {{
+  border-radius: 8px;
+  padding: 8px 10px;
+  transition: background 120ms ease;
+}}
+section[data-testid="stSidebar"] .stRadio label:hover {{
+  background: rgba(0, 102, 204, 0.08);
+}}
+.block-container {{
+  padding: 1.6rem 2.4rem 2.4rem;
+  max-width: 1480px;
+}}
+/* Page eyebrows / section heads */
+.eyebrow {{
+  color: {t['ink_muted_48']};
+  font-size: 0.74rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+}}
+h1 {{
+  font-size: 2.0rem !important;
+  letter-spacing: -0.035em !important;
+  font-weight: 700 !important;
+  margin-bottom: 0.2rem !important;
+  color: {t['ink']};
+}}
+h2 {{
+  font-size: 1.5rem !important;
+  letter-spacing: -0.02em !important;
+  font-weight: 600 !important;
+  margin-top: 1.5rem !important;
+  color: {t['ink']};
+}}
+h3 {{
+  font-size: 1.1rem !important;
+  font-weight: 600 !important;
+  color: {t['ink']};
+  margin-top: 1.2rem !important;
+  margin-bottom: 0.4rem !important;
+}}
+.subline {{ color: var(--muted); font-size: 0.92rem; }}
+
+/* Status bar (capsule pill row) */
+.statusbar {{
+  display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem;
+  padding: 0.7rem 0.9rem; background: {t['canvas']};
+  border: 1px solid {t['divider_soft']}; border-radius: 14px;
+  margin: 0.9rem 0 1.1rem;
+}}
+.badge {{
+  display: inline-flex; align-items: center; gap: 0.32rem;
+  padding: 0.28rem 0.7rem; border-radius: 9999px;
+  font-size: 0.74rem; font-weight: 600;
+  border: 1px solid transparent;
+}}
+.verified {{ background: {t['success_bg']}; color: {t['success_fg']}; }}
+.warning {{ background: {t['warning_bg']}; color: {t['warning_fg']}; }}
+.blocked {{ background: {t['blocked_bg']}; color: {t['blocked_fg']}; }}
+.snapshot {{ background: {t['snapshot_bg']}; color: {t['snapshot_fg']}; }}
+.neutral {{ background: {t['parchment']}; color: {t['ink_muted_80']}; border-color: {t['divider_soft']}; }}
+.up {{ color: {t['quote_up']}; font-weight: 600; }}
+.down {{ color: {t['quote_down']}; font-weight: 600; }}
+
+/* Metric cards (Apple hairline + zero shadow) */
+[data-testid="stMetric"] {{
+  background: {t['canvas']};
+  border: 1px solid {t['divider_soft']};
+  border-radius: 14px;
+  padding: 1.0rem 1.1rem;
+  min-height: 120px;
+}}
+[data-testid="stMetricLabel"] {{
+  color: {t['ink_muted_48']};
+  font-weight: 600;
+  font-size: 0.78rem;
+  letter-spacing: 0.02em;
+}}
+[data-testid="stMetricValue"] {{
+  color: {t['ink']};
+  font-size: 1.6rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}}
+[data-testid="stMetricDelta"] {{ font-size: 0.78rem; }}
+
+/* Container with border → use as utility card */
+div[data-testid="stVerticalBlockBorderWrapper"] > div,
+.stContainer[data-testid="stContainer"]:has(> div[data-testid="stVerticalBlock"]),
+.stContainer[border="True"] {{
+  background: {t['canvas']};
+  border: 1px solid {t['divider_soft']} !important;
+  border-radius: 14px !important;
+  padding: 1rem 1.2rem;
+  box-shadow: none !important;
+}}
+
+/* Evidence id style — link-blue mono, the one place where a true link
+   colour is allowed. */
+.evidence {{
+  color: {t['evidence']};
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.78rem; font-weight: 600;
+}}
+
+/* Warning / blocked callout cards: hairline + 3px left border, no shadow */
+.warn {{
+  border-left: 3px solid {t['warning_fg']};
+  background: {t['warning_bg']};
+  padding: 0.75rem 0.95rem; border-radius: 8px;
+  color: {t['warning_fg']};
+}}
+.blocked-card {{
+  border-left: 3px solid {t['blocked_fg']};
+  background: {t['blocked_bg']};
+  padding: 0.75rem 0.95rem; border-radius: 8px;
+  color: {t['blocked_fg']};
+}}
+
+/* Pill buttons — Apple action grammar (radius 9999, blue fill). */
+.stButton > button,
+.stDownloadButton > button,
+.stFormSubmitButton > button {{
+  border-radius: 9999px !important;
+  font-weight: 600 !important;
+  border: 1px solid {t['hairline']} !important;
+  background: {t['canvas']} !important;
+  color: {t['ink']} !important;
+  padding: 0.45rem 1.1rem !important;
+  transition: transform 100ms ease, background 120ms ease;
+}}
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+.stFormSubmitButton > button:hover {{
+  background: {t['parchment']} !important;
+}}
+.stButton > button:active,
+.stFormSubmitButton > button:active {{
+  transform: scale(0.97);
+}}
+/* Primary (type=primary) → Action Blue pill */
+.stButton > button[kind="primary"],
+.stFormSubmitButton > button[kind="primary"] {{
+  background: {t['primary']} !important;
+  color: {t['canvas']} !important;
+  border-color: {t['primary']} !important;
+}}
+.stButton > button[kind="primary"]:hover,
+.stFormSubmitButton > button[kind="primary"]:hover {{
+  background: {t['primary_focus']} !important;
+  border-color: {t['primary_focus']} !important;
+}}
+/* Dark utility (export / 登录 / 取消 actions) */
+.stButton > button.dark-util,
+.stDownloadButton > button.dark-util {{
+  background: {t['ink']} !important;
+  color: {t['canvas']} !important;
+  border-color: {t['ink']} !important;
+  border-radius: 8px !important;
+}}
+.stButton > button.dark-util:hover {{
+  background: {t['tile_dark']} !important;
+}}
+
+/* Inputs / date pickers / selects — pill radius, hairline border. */
+.stTextInput input, .stDateInput input, .stTextArea textarea,
+.stNumberInput input, [data-baseweb="input"] input {{
+  border-radius: 10px !important;
+  border: 1px solid {t['hairline']} !important;
+  background: {t['canvas']} !important;
+  color: {t['ink']} !important;
+}}
+.stTextInput input:focus, .stDateInput input:focus, .stTextArea textarea:focus {{
+  border-color: {t['primary']} !important;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.18) !important;
+}}
+
+/* Segmented control */
+[data-testid="stSegmentedControl"] [role="radiogroup"] {{
+  background: {t['parchment']};
+  border-radius: 10px;
+  padding: 3px;
+}}
+[data-testid="stSegmentedControl"] label {{
+  border-radius: 8px !important;
+}}
+
+/* DataFrames — zero default shadow, hairline border */
+.stDataFrame, [data-testid="stDataFrame"] {{
+  border: 1px solid {t['divider_soft']} !important;
+  border-radius: 10px !important;
+  overflow: hidden;
+}}
+
+/* Trace timeline (legacy _trace_legacy) */
+.trace {{ border-left: 2px solid {t['hairline']}; padding: 0.5rem 0 0.5rem 1rem; margin-left: 0.5rem; }}
+
+/* Sidebar brand line */
+.brand {{
+  font-size: 1.15rem; font-weight: 700;
+  letter-spacing: -0.01em;
+  color: {t['ink']};
+  margin: 0.2rem 0 1.4rem;
+}}
+</style>""",
         unsafe_allow_html=True,
     )
 
@@ -278,9 +583,9 @@ def overview(snapshot: dict, metadata: dict) -> None:
     left, right = st.columns([1.65, 1])
     with left:
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=bars.trade_date, y=bars.close, mode="lines+markers", customdata=bars[["evidence_id", "price_basis", "provider"]], hovertemplate="日期: %{x}<br>收盘价: %{y}<br>Evidence ID: %{customdata[0]}<br>价格口径: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", line=dict(color="#2c6bed", width=2.5), fill="tozeroy", fillcolor="rgba(44,107,237,.08)", name="RAW 收盘价"))
+        fig.add_trace(go.Scatter(x=bars.trade_date, y=bars.close, mode="lines+markers", customdata=bars[["evidence_id", "price_basis", "provider"]], hovertemplate="日期: %{x}<br>收盘价: %{y}<br>Evidence ID: %{customdata[0]}<br>价格口径: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", line=dict(color="#0066cc", width=2.5), fill="tozeroy", fillcolor="rgba(0, 102, 204,.08)", name="RAW 收盘价"))
         fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color="#8b9bb0")
-        fig.update_layout(title="价格区间（RAW）", height=310, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", yaxis_title="CNY / 股", xaxis=dict(showgrid=False), yaxis=dict(gridcolor="#edf1f5"), showlegend=False)
+        fig.update_layout(title="价格区间（RAW）", height=310, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", yaxis_title="CNY / 股", xaxis=dict(showgrid=False), yaxis=dict(gridcolor="#F0F0F0"), showlegend=False)
         event = st.plotly_chart(fig, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_market_{snapshot['snapshot_id']}")
         if event.selection.points:
             selected_id = event.selection.points[0].get("customdata", [None])[0]
@@ -298,8 +603,8 @@ def overview(snapshot: dict, metadata: dict) -> None:
     profit_custom = list(zip(chart_financials["profit_evidence_id"], chart_financials["published_at"], [financial_result["provider"]] * len(chart_financials)))
     fig2 = go.Figure()
     fig2.add_bar(x=chart_financials.fiscal_period, y=chart_financials["revenue_billion"], customdata=revenue_custom, hovertemplate="报告期: %{x}<br>营业收入: %{y}<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", name="营业收入", marker_color="#6d8fd5")
-    fig2.add_scatter(x=chart_financials.fiscal_period, y=chart_financials["net_profit_billion"], customdata=profit_custom, hovertemplate="报告期: %{x}<br>归母净利润: %{y}<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", name="归母净利润", yaxis="y2", mode="lines+markers", line=dict(color="#00a7a0", width=2.5))
-    fig2.update_layout(title="年度业绩趋势 · 单位：亿元", height=300, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", legend=dict(orientation="h", y=1.13), yaxis=dict(title="收入", gridcolor="#edf1f5"), yaxis2=dict(title="净利润", overlaying="y", side="right", showgrid=False))
+    fig2.add_scatter(x=chart_financials.fiscal_period, y=chart_financials["net_profit_billion"], customdata=profit_custom, hovertemplate="报告期: %{x}<br>归母净利润: %{y}<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<extra></extra>", name="归母净利润", yaxis="y2", mode="lines+markers", line=dict(color="#0F766E", width=2.5))
+    fig2.update_layout(title="年度业绩趋势 · 单位：亿元", height=300, margin=dict(l=15,r=15,t=45,b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", legend=dict(orientation="h", y=1.13), yaxis=dict(title="收入", gridcolor="#F0F0F0"), yaxis2=dict(title="净利润", overlaying="y", side="right", showgrid=False))
     event2 = st.plotly_chart(fig2, width="stretch", on_select="rerun", selection_mode="points", key=f"overview_financial_{snapshot['snapshot_id']}")
     if event2.selection.points:
         selected_id = event2.selection.points[0].get("customdata", [None])[0]
@@ -329,9 +634,9 @@ def market(snapshot: dict) -> None:
         x=bars.trade_date, open=bars.open, high=bars.high, low=bars.low, close=bars.close,
         customdata=bars[["evidence_id", "price_basis", "provider"]],
         hovertext=hover, hoverinfo="text",
-        increasing_line_color="#1c9a82", decreasing_line_color="#6c7b91", name="RAW",
+        increasing_line_color="#c0392b", decreasing_line_color="#1c9a82", name="RAW",
     ), row=1, col=1)
-    fig.add_trace(go.Bar(x=bars.trade_date, y=bars.volume, marker_color="#9fb2cc", name="成交量（手）", hovertemplate="日期: %{x}<br>成交量: %{y:,.0f} 手<extra></extra>"), row=2, col=1)
+    fig.add_trace(go.Bar(x=bars.trade_date, y=bars.volume, marker_color="#D2D2D7", name="成交量（手）", hovertemplate="日期: %{x}<br>成交量: %{y:,.0f} 手<extra></extra>"), row=2, col=1)
     fig.add_vline(x=snapshot["research_as_of"][:10], line_dash="dot", line_color="#8b9bb0", annotation_text="研究时点", row=1, col=1)
     fig.update_layout(height=560, title=f"日线与成交量 / {mode}", xaxis_rangeslider_visible=False, paper_bgcolor="#fff", plot_bgcolor="#fff", margin=dict(l=15,r=15,t=45,b=15), showlegend=False)
     fig.update_yaxes(title_text="CNY / 股", row=1, col=1)
@@ -398,7 +703,7 @@ def financials(snapshot: dict) -> None:
         fig = px.bar(
             chart_data, x="fiscal_period", y="value", text_auto=".1f",
             custom_data=["evidence_id", "published_at", "provider", "period_basis"],
-            color_discrete_sequence=["#2c6bed"],
+            color_discrete_sequence=["#0066cc"],
         )
         fig.update_traces(hovertemplate="报告期: %{x}<br>数值: %{y}<br>Evidence ID: %{customdata[0]}<br>披露时间: %{customdata[1]}<br>来源: %{customdata[2]}<br>期间口径: %{customdata[3]}<extra></extra>")
         fig.update_layout(title=title, height=380, paper_bgcolor="#fff", plot_bgcolor="#fff", margin=dict(l=15,r=15,t=45,b=15), yaxis_title=y_title, xaxis_title="报告期")
@@ -456,7 +761,7 @@ def valuation(snapshot: dict, metadata: dict) -> None:
         median = value.get("median")
         if median is None:
             continue
-        target_value = next((item["鐩爣鍏徃"] for item in rows if item["鎸囨爣"] == name), None)
+        target_value = next((item["目标公司"] for item in rows if item["指标"] == name), None)
         comparison = "数据不足" if target_value is None else "高于同业中位数" if target_value > median else "低于同业中位数" if target_value < median else "接近同业中位数"
         reference_rows.append({"指标": name, "目标公司": target_value, "同业中位数": median, "对比": comparison, "中位数对应价格": value.get("implied_price"), "样本置信度": value.get("confidence")})
     st.dataframe(pd.DataFrame(reference_rows), width="stretch", hide_index=True)
@@ -497,7 +802,7 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
     distribution = pd.DataFrame(peer["distributions"][metric])
     chart_rows = distribution.dropna(subset=["value"])
     if not chart_rows.empty:
-        colors = chart_rows["included"].map({True: "#2c6bed", False: "#c78512"})
+        colors = chart_rows["included"].map({True: "#0066cc", False: "#c78512"})
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=chart_rows["value"], y=chart_rows["name"], mode="markers", marker=dict(size=12, color=colors),
@@ -506,9 +811,9 @@ def valuation_safe(snapshot: dict, metadata: dict) -> None:
             name="同行",
         ))
         if target is not None:
-            fig.add_vline(x=target, line_color="#00a7a0", line_width=2, annotation_text="目标公司")
+            fig.add_vline(x=target, line_color="#0F766E", line_width=2, annotation_text="目标公司")
         if interval["p25"] is not None and interval["p75"] is not None:
-            fig.add_vrect(x0=interval["p25"], x1=interval["p75"], fillcolor="rgba(44,107,237,.10)", line_width=0, annotation_text="P25–P75")
+            fig.add_vrect(x0=interval["p25"], x1=interval["p75"], fillcolor="rgba(0, 102, 204,.10)", line_width=0, annotation_text="P25–P75")
         fig.update_layout(height=max(330, 52 * len(chart_rows)), xaxis_title=f"{metric}（倍）", yaxis_title=None, margin=dict(l=15, r=15, t=30, b=15), paper_bgcolor="#fff", plot_bgcolor="#fff", showlegend=False)
         st.plotly_chart(fig, width="stretch", key=f"peer_distribution_{snapshot['snapshot_id']}_{metric}")
     st.markdown("#### 同行纳入与剔除")
@@ -775,7 +1080,7 @@ def tasks() -> None:
     status_options = sorted({item.get("status", "unknown") for item in history})
     selected_statuses = st.multiselect(
         "按状态筛选任务", status_options, default=status_options,
-        key="task_status_filter", persist_state="session",
+        key="task_status_filter",
     )
     if selected_statuses:
         history = [item for item in history if item.get("status") in selected_statuses]
@@ -924,13 +1229,15 @@ def daily_review() -> None:
         html_bytes = None
         st.error(f"完整报告渲染失败：{exc}", icon=":material/error:")
     if html_bytes is not None:
-        import streamlit.components.v1 as components  # srcdoc iframe 隔离渲染
         with st.expander("📄 在页面内完整查看报告 ↓（点击展开，无需额外服务）", expanded=False):
             st.caption(
                 f"选中快照：`{snapshot_id}` · 大小 "
                 f"{len(html_bytes)//1024} KB · 数据全部带 evidence_id 并标注 synthetic_demo。"
             )
-            components.html(html_bytes, height=1800, scrolling=True)
+            # st.iframe renders the full HTML report inline; the report
+            # itself owns its scroll behaviour so no extra `scrolling` arg.
+            # st.iframe accepts str | Path, decode the bytes first.
+            st.iframe(html_bytes.decode("utf-8"), height=1800)
         d_col1, d_col2 = st.columns([1, 3])
         with d_col1:
             st.download_button(

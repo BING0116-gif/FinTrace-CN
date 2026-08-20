@@ -2,9 +2,9 @@
 
 ## 默认来源：版本化本地快照
 
-默认测试与演示使用 `data/snapshots/cn/*.json`。快照包含标准化公司资料、RAW 日线、财务报表、报告期间元数据、披露可用时间和快照 ID。
+默认测试使用 `tests/fixtures/cn/*.json`，工作台演示由 `src/cn/demo_data.py` 在本地生成到 `data/snapshots/cn/`。生成数据的 Provider 为 `illustrative_fixture`，不代表真实公司价格或财报。真实 Provider 快照只保存在被 Git 忽略的 `data/` 下。
 
-快照是历史数据，报告必须明确标注为快照而非实时行情。`snapshot_id` 与 `research_as_of` 会写入报告元数据和基准结果。
+所有快照都必须显示 `snapshot_id`、`research_as_of`、Provider 与 data quality；illustrative 和历史快照均不得冒充实时行情。
 
 ## 时点一致性规则
 

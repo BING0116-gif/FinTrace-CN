@@ -20,6 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from .domain import FinancialStatement
+from .demo_data import ensure_demo_snapshots
 from .industries import get_industry_code, is_financial_institution
 from .peer_workflow import PeerCandidate, result_to_dict, value_with_peers
 from .periods import FinancialPeriodEngine
@@ -30,7 +31,8 @@ from .valuation import PeerValuationInput, calculate_multiple
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-SNAPSHOT_DIR = PROJECT_ROOT / "data" / "snapshots" / "cn"
+DEFAULT_SNAPSHOT_DIR = PROJECT_ROOT / "data" / "snapshots" / "cn"
+SNAPSHOT_DIR = DEFAULT_SNAPSHOT_DIR
 OUTPUT_DIR = PROJECT_ROOT / "output"
 EVALUATION_DIR = OUTPUT_DIR
 TASK_DIR = OUTPUT_DIR / "workbench_tasks"
@@ -45,8 +47,15 @@ def _read_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _ensure_default_snapshots() -> None:
+    """Seed only the default local directory with license-safe demo inputs."""
+    if SNAPSHOT_DIR == DEFAULT_SNAPSHOT_DIR:
+        ensure_demo_snapshots(SNAPSHOT_DIR)
+
+
 @lru_cache(maxsize=64)
 def load_snapshot(snapshot_id: str) -> dict[str, Any]:
+    _ensure_default_snapshots()
     for path in SNAPSHOT_DIR.glob("*.json"):
         payload = _read_json(path)
         if payload.get("snapshot_id") == snapshot_id:
@@ -55,6 +64,7 @@ def load_snapshot(snapshot_id: str) -> dict[str, Any]:
 
 
 def _snapshot_path(snapshot_id: str) -> Path:
+    _ensure_default_snapshots()
     for path in SNAPSHOT_DIR.glob("*.json"):
         if _read_json(path).get("snapshot_id") == snapshot_id:
             return path
@@ -68,6 +78,7 @@ def _ledger_validation(payload: dict[str, Any]):
 
 
 def list_research() -> list[dict[str, str]]:
+    _ensure_default_snapshots()
     items = []
     for path in sorted(SNAPSHOT_DIR.glob("*.json")):
         payload = _read_json(path)

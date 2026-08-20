@@ -1,4 +1,4 @@
-"""Provider contract. Domain services must depend on this, never on yfinance."""
+"""Provider contract used by all A-share domain services."""
 
 from __future__ import annotations
 
