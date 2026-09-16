@@ -58,6 +58,7 @@ temp/
 tmp/
 .tmp/
 data/
+.pytest_tmp*/
 
 # API keys (never commit these!)
 .env.local
