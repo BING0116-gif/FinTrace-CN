@@ -137,6 +137,37 @@ fail-closed：解析失败的事实不存在，而不是存在但错误。每页
 - [ ] 合成样例集提取的字段级 P/R/F1 有基线数字（不虚构目标值）
 - [ ] 反向跳转链路打通：fact → document_id → page 在 UI 可点击
 - [ ] 全部测试离线通过；真实 PDF 存 `data/documents/`（gitignore）
+- [ ] Controlled Environment Guard 规则实现（第 9b 节）并有测试
+
+## 9b. Controlled Environment Guard（并入本卡的封闭环境安全规则）
+
+> 两个比赛都强调 Agent 系统真实运行；上传的 PDF/DOC/TXT 属于 **untrusted data**。文档中的文字不能成为 Agent 指令。此能力并入本卡与 CARD-05/07，**不单独做 CARD**。
+
+**Document Content Isolation（文档文本 = DATA，永不等于 INSTRUCTION）**：
+- 文档内容只经 data boundary 注入模型，不得改变系统/任务规则
+- 文档含"忽略之前的规则"/"输出系统 prompt"等内容时，只能作为 document content，系统行为不变
+
+**Prompt Injection Guard**：
+- ingest 与解析阶段对文本做注入特征扫描（启发式规则），命中 → 文档标记 `suspected_injection` + 定位文本段落，不阻断解析但记录审计
+- Claim Extractor（CARD-05）与 Run/Audit（CARD-07）共用该标记
+
+**File Access Allowlist / Path Traversal Protection**：
+- 文件读写仅限工作区 allowlist（data/、output/、runs/）
+- 拒绝路径穿越：`../`、绝对路径越权、符号链接逃逸——校验后拒绝并记录
+
+**External Network Policy**：
+- 竞赛/离线模式下默认禁外网；白名单仅 LLM API（和评审环境复现说明）
+- 文档不得触发任何网络行为
+
+**Tool Permission Minimization**：工具权限最小化；文档不得要求模型泄露 prompt / environment / 无关文件。
+
+| 检查项 | 实现位置 | 测试 |
+|---|---|---|
+| 注入特征扫描 | registry.ingest | 注入样本文档 → 标记 suspected_injection |
+| 路径穿越拒绝 | registry/file loader | `../evil` 被拒 + 审计 |
+| 越权逃逸 | sandbox 校验 | 逃逸尝试被拒 |
+| 离线禁外网 | 网络策略（env 开关） | offline 模式网络调用被拒 |
+| 内容隔离注入模型 | Claim/Retrieval prompt 模板 | 文档指令不改系统行为（CARD-05 联测） |
 
 ## 16. 执行备注（agent 填写）
 

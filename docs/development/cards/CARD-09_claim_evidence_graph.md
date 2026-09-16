@@ -33,26 +33,41 @@
 @dataclass
 class Claim:
     claim_id: str
-    claim_type: str          # fact | inference | opinion
+    claim_type: str          # fact | inference | opinion（认识论维度）
+    temporal_status: str     # historical | current | forward_looking（时间维度，与 claim_type 分离）
     text: str
     evidence_ids: list[str]  # fact 必须非空
     calculation_ids: list[str]
     derived_from: list[str]  # inference 必须非空（指向 fact claim_id）
-    confidence: str | float  # 确定性规则给出
-    validation_status: str   # pending | supported | unsupported | blocked
+    dependency_metadata: list[dict]  # [{role: REQUIRED|SUPPORTING|OPTIONAL, target_id, target_type: claim|evidence|calculation|assumption}]
+    verification_status: str # EXACT_MATCH | ROUNDING_MATCH | NORMALIZED_MATCH | PERIOD_INFERRED | CONFLICTED | UNVERIFIABLE（离散状态，无伪置信分数）
+    validation_status: str   # pending | supported | unsupported | blocked | stale
+    rationale: str | None    # 可选
+
+@dataclass
+class Thesis:
+    """投资逻辑：由多个 REQUIRED/SUPPORTING Claim 构成的命题（CARD-24 Fragility 输入）"""
+    thesis_id: str
+    statement: str
+    claim_ids: list[str]
+    dependency_roles: dict[str, str]   # {claim_id: REQUIRED|SUPPORTING|OPTIONAL}
+    status: str              # supported | weakened | blocked | stale（由传播规则得出）
 
 @dataclass
 class Calculation:
     calculation_id: str
     formula: str
+    formula_version: str
     inputs: list[dict]       # 每项 {ref: evidence_id|calculation_id, value}
-    output: dict             # {value, unit}
-    tool_version: str
+    output: dict             # {value, unit, period}
+    code_version: str
+    validation_status: str
 
 @dataclass
 class ClaimGraph:
     run_id: str
     claims: dict[str, Claim]
+    theses: dict[str, Thesis]
     calculations: dict[str, Calculation]
     evidence_index: dict     # evidence_id → {document_id, page, bbox | snapshot}
 
@@ -60,6 +75,7 @@ class ClaimGraph:
     def detect_orphan_claims(self) -> list[str]: ...    # 无 evidence 的 fact
     def detect_unsupported_calculations(self) -> list[str]: ...  # 输入缺证据的计算
     def detect_missing_evidence(self) -> list[str]: ... # evidence_id 悬空
+    def propagate_state(self, changed_ids=None) -> list[dict]: ...  # 见 §7b 传播规则
     def export_json(self) -> dict: ...
 ```
 
@@ -97,6 +113,23 @@ Agent 工具 `DeactivateCnEvidenceTool`：入参 `evidence_id + reason`；出参
 
 诊断信号（CARD-03）进图时是 inference，其 derived_from 指向指标 fact——**信号不得被当作确定因果写入 fact**。
 
+## 7b. Dependency Semantics 与状态传播（fail-closed，v3.2 强化）
+
+**依赖语义（dependency_metadata 的 role）**：REQUIRED / SUPPORTING / OPTIONAL。默认重要分析链路必须明确 REQUIRED。
+
+**传播规则（propagate_state 实现，离散状态不引入伪置信分数）**：
+
+| 上游状态 | REQUIRED | SUPPORTING | OPTIONAL |
+|---|---|---|---|
+| BLOCKED / CONFLICTED | 下游至少 STALE / BLOCKED | 覆盖度降级（support completeness↓），不自动 blocked | 不影响核心有效性 |
+| STALE（superseded/过期） | 下游 STALE | 下游标注 stale 提醒 | 不影响 |
+| 正常 | 正常 | 正常 | 不影响 |
+
+- SUPPORTING Evidence 失效 **不一定阻断 Thesis**，但应降低 support completeness（记录 `coverage_dropped`）
+- Thesis 状态由传播得出：任一 REQUIRED claim blocked → thesis blocked；所有 REQUIRED 正常但 SUPPORTING 缺失 → weakened；涉及过期 → stale
+- **不得使用未经校准的 0.83 / 0.72 等伪置信分数**；一律用离散状态
+- 时间维度（新公告/更正/重述）驱动同一传播，具体触发器与增量逻辑见 CARD-25
+
 ## 8. Edge Cases
 
 1. 一条 inference 依赖多条 fact（多证据结论）→ derived_from 列表全量记录
@@ -120,6 +153,8 @@ Agent 工具 `DeactivateCnEvidenceTool`：入参 `evidence_id + reason`；出参
 - 三类绑定规则正反例
 - 证据删除 → blocked 传播
 - 环引用拒绝；序列化/反序列化保真
+- REQUIRED/SUPPORTING/OPTIONAL 传播规则表驱动测试（含 CONFLICTED → BLOCKED 路径）
+- Thesis 状态推导（supported/weakened/blocked/stale）各一例
 
 ## 12. Integration Tests
 

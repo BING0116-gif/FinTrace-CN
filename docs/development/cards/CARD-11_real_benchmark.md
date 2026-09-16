@@ -4,15 +4,15 @@
 |---|---|
 | 优先级 | P0（从第一个模块开发起持续建设，不是最后补） |
 | 竞赛阶段 | 贯穿初赛（10/12–10/15 收口） |
-| 对应赛题 | 赛题7 内部评价机制 + 全部评分项的量化证据 |
-| 依赖 | 无（与各业务卡互为配套，业务卡完成一块接一块） |
-| 实现复杂度 | 高（约 6 人日，分散投入） |
+| 对应赛题 | 赛题7 内部评价机制 + 全部评分项的量化证据；**FinFuzz 集成点（CARD-26）** |
+| 依赖 | 无（与各业务卡互为配套，业务卡完成一块接一块）；FinFuzz 子集依赖 CARD-26 |
+| 实现复杂度 | 高（约 8 人日+，分散投入；含 FinFuzz 集成 1–2 人日） |
 | 状态 | ☐ 未开始 |
 | Skill 要求 | 动手前加载 financial-agent-evaluation |
 
 ## 1. 目标
 
-在现有 benchmark/real_benchmark/ablation 基础上（`benchmarks/cn_agent_v1.json` 保持不动）新建 `cn_agent_v2` 三级评测体系：**Synthetic Test Set / Real Public A-share Test Set / Holdout Set**，覆盖 24 项指标。任何 LLM 新能力必须与 baseline 对比。评分项的量化证据全部出自本卡。
+在现有 benchmark/real_benchmark/ablation 基础上（`benchmarks/cn_agent_v1.json` 保持不动）新建 `cn_agent_v2` 三级评测体系：**Synthetic Test Set / Real Public A-share Test Set / Holdout Set**，覆盖 24 项指标 + **FinFuzz 对抗评测（CARD-26 集成）**。任何 LLM 新能力必须与 baseline 对比。评分项的量化证据全部出自本卡。**Benchmark 必须证明创新有效（ablation）——不能只报功能。**
 
 ## 2. 对应竞赛评分点
 
@@ -55,8 +55,23 @@ python -m src.cn.benchmark --suite cn_agent_v2 --set real --out output/benchmark
 **安全组**：Unsafe Conclusion Leakage（inference 冒充 fact 的泄漏率）
 **复现组**：Replay Success Rate；Multi-run Consistency
 **成本组**：Latency；Token Cost
+**对抗组（FinFuzz 集成，CARD-26）**：Mutation Detection Precision / Recall / F1；per-error-type Recall（numeric/unit/period/scope/version/citation/causal…）；False Positive Rate；Holdout performance
 
 阈值纪律：**所有目标值待各模块 baseline 测试后冻结**，评测报告里 baseline 数字如实呈现，禁止预填 95%/98% 类目标。
+
+## 7b. Ablation（创新有效性必须证明，不能只报功能）
+
+Benchmark 必须带 ablation 对照，每项创新要有"无创新 vs 有创新"的比较：
+
+| 创新 | Baseline | 实验组 | 比较指标 |
+|---|---|---|---|
+| ACME（CARD-22） | Parser only | Parser + accounting constraints | financial extraction error detection / statement integrity error detection |
+| Claim Passport（CARD-23） | citation only | FPO verifier | unsupported claim detection / stale claim detection / calculation reproducibility |
+| Fragility（CARD-24） | —（非测准确率） | 人工构造 Thesis graph | critical dependency correctness / cut-set correctness / state propagation correctness |
+| Temporal Revalidation（CARD-25） | full recomputation | incremental affected-subgraph recomputation | nodes recomputed / latency / same deterministic result |
+| FinFuzz（CARD-26） | 无 FinFuzz 的常规测试 | 含 FinFuzz 对抗测试 | 错误检测覆盖率 / per-error-type recall |
+
+ablation 结果进 `output/benchmark/cn_agent_v2/ablation/` 报告表，答辩材料直接可引用。**未运行前一律标 TARGET / TO BE MEASURED，禁止编造数字。**
 
 ## 8. Edge Cases
 

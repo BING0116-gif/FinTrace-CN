@@ -4,36 +4,44 @@
 > 所有模块开发以 `docs/development/cards/` 下的任务卡（CARD）为执行单元。执行任何卡片前，必须先阅读本文档第 8、9、10、11 节。
 > 上位规则：`AGENTS.md`（工作区级，永远优先于本文档）。
 
-- 版本：v3.0（Competition Edition，全量替代 v2.0）
+- 版本：v3.2（编码前冻结版，全量替代 v3.1）
 - 制定日期：2026-09-16
+- 双赛：华北五省计算机设计大赛 + 北京市大学生金融人工智能竞赛（叙事定位见 DUAL_COMPETITION_POSITIONING.md）
 - 初赛提交截止：2026-10-18（项目计划书 PDF + ≤5 分钟视频）
 - **Code Freeze：2026-10-15 之后禁止加入任何重大新功能，只允许 bug fix 与材料准备**
 - 决赛：2026-11 月底
+
+**v3.2 修订说明**：把创新体系正式 CARD 化并融入现有架构。核心变更：①创新能力与现有 CARD 逐项重叠检查（优先扩展、禁止重复建设）；②创新一升级为 **ACME**（Accounting-Constrained Multimodal Evidence Engine，六类约束族，CARD-22）；③创新二改名 **Financial Claim Passport**（对外"金融AI结论护照"，新增 `verify_claim()` 五态验证，CARD-23）；④Thesis Fragility 升级为确定性图算法引擎（CARD-24）；⑤Temporal Revalidation 升级（version lineage + 三态区分 + 增量重算，CARD-25）；⑥FinFuzz 明确为测试框架并集成 Benchmark（CARD-26 + CARD-11）；⑦Controlled Environment Guard 并入 CARD-01（不单独做卡）；⑧Cross-source reconciliation 扩展 CARD-13、dependency semantics/Thesis 扩展 CARD-09；⑨新增 DUAL_COMPETITION_POSITIONING.md。全部创新卡升级为 22 字段。
 
 ---
 
 ## 0. 主链（整个文档体系的核心，先看这里）
 
 ```text
-真实金融文档（年报 / 半年报 / 季报 / 公告 / 研报草稿）
-  ↓ ① Document Intelligence     文档注册 / PDF 解析 / 表格解析 / 证据定位
-  ↓ ② Financial Normalization   单位 / 币种 / 期间 / 口径 / flow-stock 语义
-  ↓ ③ Evidence                  point-in-time，带文档页码 / bbox / available_at
-  ↓ ④ Deterministic Financial Tools   确定性 Python 金融计算
-  ↓ ⑤ Financial Diagnostics     YTD→单季化 / 盈利状态迁移 / 诊断信号
-  ↓ ⑥ Claim Extraction           事实 fact / 推论 inference / 观点 opinion 三级
-  ↓ ⑦ Report Checking            13 类错误确定性核查
+真实金融文档（年报 / 半年报 / 季报 / 公告 / 研报草稿）+ Snapshot Provider
+  ↓ ① Document Intelligence     文档注册 / 解析 / 证据定位 / Controlled Environment Guard（CARD-01）
+  ↓ ② Financial Normalization   单位 / 币种 / 期间 / 口径 / flow-stock 语义（CARD-02）
+  ↓ ③ ACME Constraint Layer     六类约束族：检测+定位+阻断（CARD-22，创新一）
+  ↓ ④ Evidence                  point-in-time，带文档页码 / bbox / available_at
+  ↓ ⑤ Deterministic Financial Tools   确定性 Python 金融计算
+  ↓ ⑥ Financial Diagnostics     YTD→单季化 / 盈利状态迁移 / 诊断信号
+  ↓ ⑦ Claim Extraction + Report Checking   fact/inference/opinion 三级，13 类错误核查
   ↓ ⑧ Valuation                  相对估值 + Bear/Base/Bull 敏感性
-  ↓ ⑨ Claim-Evidence Graph       结论 → 计算 → 证据 → PDF 页
-  ↓ ⑩ Investment Memo            买方投资备忘录
-  ↓ ⑪ Validator（fail-closed）   证据不足 / 冲突 / 口径不一致 → 降级或阻断
-  ↓ ⑫ Evidence Pack              可交付证据包
-  ↓ ⑬ Audit Replay               可重放审计
+  ↓ ⑨ Financial Claim Passport  关键结论 → FPO → verify_claim() 五态（CARD-23，创新二）
+  ↓ ⑩ Claim-Evidence / Thesis Graph   结论 → 计算 → 证据 → PDF 页 + 依赖语义（CARD-09）
+  ↓ ⑪ Fragility Engine          关键依赖 / 最小割集 / Monitoring Plan（CARD-24，创新三）
+  ↓ ⑫ Investment Memo            买方投资备忘录
+  ↓ ⑬ Validator（fail-closed）   证据不足 / 冲突 / 口径不一致 → 降级或阻断
+  ↓ ⑭ Temporal Revalidation     version lineage + 三态 + 增量重算（CARD-25，创新三）
+  ↓ ⑮ Evidence Pack + Audit Replay     可交付证据包 / 可重放审计
+（系统外部）FinFuzz 对整个 Pipeline 对抗评测（CARD-26 + CARD-11）
 ```
 
 **核心价值主张**：任何重要金融数字都有来源，任何重要结论都有证据链，所有计算均可复核；当证据不足、数据冲突或口径不一致时，系统主动降级或阻断结论。FinTrace 不只证明"正确的时候能跑"，更证明"**错误的时候知道自己不能下结论**"。
 
 ## 1. 竞赛定位（收敛，不再追求全覆盖）
+
+> **双赛同构**：同一套代码同时参加华北五省计算机设计大赛与北京市大学生金融人工智能竞赛，叙事不同但功能同一。定位细节见 `DUAL_COMPETITION_POSITIONING.md`。本节按北京赛赛题映射（主基线），华北五省按"AI Agent + 多模态 + 约束推理 + 图算法 + 增量计算 + 对抗测试"主线包装。
 
 | 角色 | 赛题 |
 |---|---|
@@ -73,24 +81,70 @@ LLM **不允许**：凭空创造金融数据；自己完成最终财务算术并
 - **P2**：决赛增强项
 - **P3**：锦上添花，不能影响主链交付
 
-**初赛版锁定范围**（10-18 前必须稳定）：真实文档输入、财务解析、Evidence、财务分析、研报纠错、相对估值、Investment Memo、Validator、Audit Trail、Real Benchmark、稳定 Demo。
+**初赛版锁定范围**（10-18 前必须稳定）：真实文档输入、财务解析、Evidence、财务分析、研报纠错、相对估值、Investment Memo、Validator、Audit Trail、Real Benchmark、稳定 Demo + **创新 P0**：ACME 基础约束族（CARD-22）、Financial Claim Passport + verify_claim（CARD-23）、REQUIRED dependency propagation（CARD-09）。
 
-**决赛版增强**（11 月中旬后）：DCF、Multi-Agent、OCR 强化、复杂 Retrieval、MCP、Industry Chain、完整质量评估。
+**决赛版增强**（11 月中旬后）：DCF、Multi-Agent、OCR 强化、复杂 Retrieval、MCP、Industry Chain、完整质量评估、Fragility/Temporal 完整实现、FinFuzz 完整 operator 集。
 
 ## 5. 开发时间表（严格执行，10-15 起 Code Freeze）
 
-**排期原则**：全部 21 卡自估 60+ 人日；学生非全职 ≈ 21 个工作日到 10-15。以下排期是**砍超载窗口后的可行版本**——原窗口 1（12–15 人日）和窗口 5（8–10 人日）均超载，已收缩。
+**排期原则**：全部 26 卡自估 88+ 人日（v3.2 核算，见下）；学生非全职 ≈ 21 个工作日到 10-15。以下排期是**砍超载窗口后的可行版本**——原窗口 5（8–10 人日）已按 4 条并行 Track 摊薄。
+
+**v3.2 新增**：22/23 为 P0 创新核心卡，必须进入初赛关键路径；24/25/26 为 P1 创新增强卡，按并行工作流穿插；11 含 FinFuzz 集成与全创新 ablation。
 
 | 窗口 | 内容 | 卡片 | 说明 |
 |---|---|---|---|
-| 9/16–9/22（7d） | Document Registry、PDF/表格解析、证据定位、Run Manifest | **01, 07**（11 同步启动） | **移出 06**（检索不是 01 的硬依赖，挪到窗口 2） |
-| 9/23–9/29（7d） | Financial Normalization（**桥接现有引擎，不重写**）、YTD→单季/TTM 推导、YoY/QoQ、诊断引擎、Accounting Scope + **Retrieval 基础** | 02, 03, 04, **06**（补上原窗口1移出的） | Normalization/检索并行（检索只需 01，不依赖 02） |
-| 9/30–10/6（7d） | 自然语言研报 → Claim Extractor → Deterministic Checker → 纠错报告 | 05 | |
-| 10/7–10/11（5d） | 相对估值 + 敏感性、Investment Memo、Claim-Evidence Graph | 08, 09, 10 | |
-| 10/12–10/15（4d） | Real benchmark 收口（**缩为 1 家 Demo 公司全链 + 2 家抽查 + 2 家 holdout**）、Failure Injection 7 场景脚本化、**Evidence Pack 导出（13 文件，简化版）** | 11, **12（简化版）** | **Conflict 完整实现 / Replay UI 移入决赛缓冲**（窗口 5 超载 2 倍） |
+| 9/16–9/22（7d） | Document Registry、PDF/表格解析、证据定位、Run Manifest、**Controlled Environment Guard** | **01, 07**（11 同步启动） | Guard 并入 01，不单独排卡 |
+| 9/23–9/29（7d） | Financial Normalization（**桥接现有引擎，不重写**）、YTD→单季/TTM 推导、YoY/QoQ、诊断引擎、Accounting Scope、**ACME 基础约束族（F1–F4）** + **Retrieval 基础** | 02, 03, 04, **06**, **22（F1–F4）** | 22 只需 01/02；F5/F6（跨源/跨模态）放入 9/30–10/6 或与 13 联动 |
+| 9/30–10/6（7d） | 自然语言研报 → Claim Extractor → Deterministic Checker → 纠错报告、**ACME F5/F6** | 05, **22（F5/F6 后半）** | 05 是主链核心，22 后半不占 05 关键路径 |
+| 10/7–10/11（5d） | 相对估值 + 敏感性、Investment Memo、Claim-Evidence Graph、**Financial Claim Passport 基础版** | 08, 09, 10, **23** | 23 依赖 09，与 10 并行 |
+| 10/12–10/15（4d） | Real benchmark 收口（**1 家 Demo 公司全链 + 2 家抽查 + 2 家 holdout**）、Failure Injection 场景脚本化、**Evidence Pack 导出（简化版）**、**Thesis Fragility 基础版**、**Temporal Revalidation 基础版**、**FinFuzz 基础版（集成 CARD-11）** | 11（含 ablation）, **12（简化版）**, **24**, **25**, **26** | **Conflict 完整实现 / Replay UI / 24·25·26 完整实现移入决赛缓冲**（若窗口超载） |
 | 10/16–10/18（3d） | Bug fix、Demo freeze、陌生公司演练、计划书、5 分钟视频、安装复现测试 | — | 必须演练：陌生公司 PDF 解析 + 断网演示 |
 
 贯穿性卡片：11（基准从第一个模块起持续建设）、15（UI 增量随各卡落地）、14（Prompt Registry 随 LLM 功能落地）。
+
+### 5.1 并行工作流（v3.2 核算，4 条 Track）
+
+**Track A：Document / Normalization / ACME**
+- 卡片：01 → 02 → 22 → 04
+- 预估人日：6 + 5 + 6 + 3 = 20 人日（22 升级 ACME 六类约束族 +3）
+- 关键路径：01（7d）→ 02（7d）→ 22（7d）→ 04（7d）
+
+**Track B：Financial Analysis / Checker / Valuation**
+- 卡片：03 → 05 → 08
+- 预估人日：5 + 7 + 4 = 16 人日
+- 关键路径：03（7d）→ 05（7d）→ 08（10/7-10/11）
+
+**Track C：Graph / Passport / Fragility / Temporal**
+- 卡片：09 → 23 → 24 → 25
+- 预估人日：6 + 4 + 4 + 5 = 19 人日（23 五态验证 +1，24 cut-set +2，25 增量重算 +3）
+- 关键路径：09（10/7-10/11）→ 23（10/7-10/11）→ 24/25（10/12-10/15）
+
+**Track D：Benchmark / FinFuzz / UI / Demo / Submission**
+- 卡片：11（含 ablation）→ 12 → 26 → 15 → 14
+- 预估人日：8 + 4 + 4 + 4 + 1.5 = 21.5 人日（11 含 FinFuzz 集成 2 + ablation 1）
+- 关键路径：11（贯穿）→ 12（10/12-10/15）→ 26（10/12-10/15）→ 15（贯穿）→ 14（贯穿）
+
+**如果实际团队只有 3 名核心开发者**：Track C 和 Track D 合并，24/25 降为决赛增强（或只做 24 critical dependency），26 简化为 5 个核心 operator。
+
+### 5.2 Critical Path 与 Code Freeze
+
+**Critical Path**：01 → 02 → 03 → 05 → 08 → 09 → 10 → 12 → Demo Freeze（创新支线 22/23 并行于主链，不延长主链）
+
+**Code Freeze Date**：2026-10-15 23:59
+- 此后禁止新功能
+- 仅允许：bug fix、计划书、5 分钟视频、安装复现测试、Demo 演练
+
+### 5.3 工作量核算（v3.2 Scope Check）
+
+| 分组 | 卡片 | 人日 | 合计 |
+|---|---|---|---|
+| P0 主链 | 01(6) 02(5) 03(5) 04(3) 05(7) 06(3) 07(3) 08(4) 09(6) 10(4) 11(8*贯穿) 12(4) | — | ~58 |
+| P0 创新 | 22(6) 23(4) | — | 10 |
+| P1 创新增强 | 24(4) 25(5) 26(4) | — | 13 |
+| P1 其余 | 13(2.5) 14(1.5) 15(4) | — | 8 |
+| P2/P3 决赛 | 16(5) 17(3) 18(6) 19(2) 20(2) 21(5) | — | ~23 |
+
+**初赛（P0+P1）合计 ≈ 89 人日**（含 11 贯穿分散）。21 个工作日 × ≤3 人并行 ≈ 可承载，但 **P1 增强项（24/25/26/13/06）按裁剪顺序执行**：若窗口超载，优先保证 P0（58+10=68 人日）铁定完成。核心业务闭环 → 创新 P0 嵌入 → Benchmark → Demo → 再增强 的顺序不可颠倒。
 
 ## 6. 卡片索引与进度台账
 
@@ -119,6 +173,11 @@ LLM **不允许**：凭空创造金融数据；自己完成最终财务算术并
 | 19 | [Bull/Bear 结构化对照](cards/CARD-19_bull_bear.md) | P3 | 决赛 | 6 | 18 | ☐ |
 | 20 | [MCP Server](cards/CARD-20_mcp_server.md) | P3 | 决赛 | — | 工具面稳定 | ☐ |
 | 21 | [Industry Chain（重设数学）](cards/CARD-21_industry_chain.md) | P3 | 决赛 | 3 | 08 | ☐ |
+| 22 | [ACME（会计约束驱动的多模态证据理解引擎）](cards/CARD-22_acme_multimodal_evidence.md) | **P0** | 初赛 | 2/5（创新一） | 01, 02, 13 | ☐ |
+| 23 | [Financial Claim Passport & Proof Verifier（金融AI结论护照）](cards/CARD-23_claim_passport_verifier.md) | **P0** | 初赛 | 全链路（创新二） | 09, 07, 13 | ☐ |
+| 24 | [Thesis Fragility Engine（投资逻辑脆弱性分析）](cards/CARD-24_thesis_fragility_engine.md) | **P1** | 初赛增强 | 6（创新三） | 09, 23 | ☐ |
+| 25 | [Temporal Revalidation Engine（时间重验证引擎）](cards/CARD-25_temporal_revalidation_engine.md) | **P1** | 初赛增强 | 2/5（创新三） | 09, 13, 24 | ☐ |
+| 26 | [FinFuzz（金融语义对抗错误生成与压力测试）](cards/CARD-26_fin_fuzz.md) | **P1** | 初赛增强 | 7（评测创新） | 05, 09, 11 | ☐ |
 
 **工程暂缓项**（赛后处理，不设卡）：workbench.py 全量拆分（仅允许 CARD-15 最小增量）、统一任务队列 SQLite 化（Run Manifest 已覆盖可复现需求）、快照 Catalog（Document Registry 优先）。
 
@@ -128,19 +187,22 @@ LLM **不允许**：凭空创造金融数据；自己完成最终财务算术并
 01 文档智能 ──→ 02 规范化 ──→ 04 口径 ──→ 03 财务分析 ──→ 10 备忘录
     │              │                         ↗ 08 相对估值 ↗
     │              └──→ 05 纠错 ──────────→ 10
+    │              └──→ 22 ACME（六类约束）──→ 23 Claim Passport ──→ 24 脆弱性 ──→ 25 时间重验证
     ├──→ 06 检索 ─────────────────────────→ 10
 07 Run Manifest ──→ 09 图谱 ──→ 12 证据包/回放
-13 冲突解决（依赖 01/04）
-11 基准（贯穿，从 01 起每卡配套）
+                 └──→ 23 Passport ──→ 24 脆弱性 ──→ 25 时间重验证
+13 冲突/三态（依赖 01/04/22 跨源分类）──→ 25 时间重验证
+11 基准（贯穿，从 01 起每卡配套；含 FinFuzz 集成与 ablation）
 14 Prompt Registry（随 05/10 落地）  15 UI（随各业务卡）
+26 FinFuzz（依赖 05/09/11，贯穿评测）
 决赛链：08→16 DCF；09/12→17 诊断；主线→18 多智能体→19 辩论；21 产业链
 ```
 
-单人串行推荐：**01 → 07 → 02 → 04 → 03 → 06 → 05 → 08 → 09 → 10 → 11 贯穿 → 12（简化版）→ 13 → 14/15 贯穿**。
-时间不足时裁剪顺序（从后往前砍）：13（Conflict 完整实现先砍，简化为"记录冲突+阻断"最小版）→ 06（检索降级为标题关键字匹配，自研 BM25 挪决赛）。
-**不可裁剪清单**：01/02/03/04/05/07/08/**09**/10。09 是"结论→证据→PDF 页回溯"的骨架，砍掉等于砍掉 Demo 高潮二与系统差异化，**绝不可裁**（其内部"Evidence 追踪表降级"仅作为 09 完成过程中的过渡形态，不是替代卡）。
+单人串行推荐：**01 → 07 → 02 → 22 → 04 → 03 → 06 → 05 → 08 → 09 → 23 → 24 → 25 → 10 → 11 贯穿 → 12（简化版）→ 13 → 14/15 贯穿 → 26 贯穿**。
+时间不足时裁剪顺序（从后往前砍）：13（Conflict 完整实现先砍，简化为"记录冲突+阻断"最小版）→ 25（Temporal 基础版先发电统一期还需 24）→ 24（Fragility 降决赛）→ 06（检索降级为标题关键字匹配）→ 26（FinFuzz 缩为 5 个核心 operator）。
+**不可裁剪清单**：01/02/03/04/05/07/08/**09**/10/**22**/**23**。09 是"结论→证据→PDF 页回溯"的骨架，22 是 ACME 会计约束驱动的多模态质量控制（创新一），23 是 Financial Claim Passport（创新二），砍掉等于砍掉系统核心创新与差异化，**绝不可裁**。
 
-决赛缓冲（初赛窗口 5 超载时的自动转移）：13 Conflict 完整实现、12 Audit Replay UI、CARD-20 全部能力 → 决赛前 2 周内补。
+决赛缓冲（初赛窗口 5 超载时的自动转移）：13 Conflict 完整实现、12 Audit Replay UI、CARD-20 全部能力、24/25 完整实现、26 完整 operator 集 → 决赛前 2 周内补。
 
 ## 8. 卡片执行协议（Agent 使用说明）
 
@@ -154,20 +216,30 @@ LLM **不允许**：凭空创造金融数据；自己完成最终财务算术并
 
 ## 9. 统一工程契约
 
-### 9.1 Claim 契约（三级标注，比 v2 的 Section 级更细）
+### 9.1 Claim 契约（v3.1 修正：claim_type 与 temporal_status 分离、verification_status 取代 confidence 数值、依赖语义 REQUIRED/SUPPORTING/OPTIONAL）
 
 ```python
 @dataclass
 class Claim:
     claim_id: str
-    claim_type: str        # fact | inference | opinion
+    claim_type: str              # fact | inference | opinion（认识论维度）
+    temporal_status: str         # historical | current | forward_looking（时间维度）
     text: str
-    evidence_ids: list[str]     # fact 必须直接绑定
-    calculation_ids: list[str]  # 有计算的 claim 绑定 Calculation
-    derived_from: list[str]     # inference 必须能追踪依赖的 fact claim_id
-    confidence: str | float     # 确定性规则给出，非 LLM 自评
-    validation_status: str      # pending | supported | unsupported | blocked
+    evidence_ids: list[str]      # fact 必须直接绑定
+    calculation_ids: list[str]   # 有计算的 claim 绑定 Calculation
+    assumption_ids: list[str]    # opinion 必须标注假设来源
+    derived_from: list[str]      # inference 必须能追踪依赖的 fact claim_id
+    dependency_metadata: list[dict]  # [{role: REQUIRED|SUPPORTING|OPTIONAL, target_id}]
+    verification_status: str     # EXACT_MATCH | ROUNDING_MATCH | NORMALIZED_MATCH | PERIOD_INFERRED | CONFLICTED | UNVERIFIABLE
+    validation_status: str       # pending | supported | unsupported | blocked
+    rationale: str | None        # 可选，推理依据说明
 ```
+
+**v3.1 核心修正**：
+- **claim_type 与 temporal_status 分离**：fact/inference/opinion 是认识论维度；historical/current/forward_looking 是时间维度。valuation 作为 claim subtype / domain，不与 fact/inference/opinion 混成同一 enum
+- **verification_status 取代 confidence 数值**：删除没有校准依据的 0.8/0.9/1.0 confidence，改为离散状态。如果未来需要 numerical confidence，必须有 calibration 方法
+- **依赖语义 REQUIRED/SUPPORTING/OPTIONAL**：REQUIRED 上游 blocked → 下游 blocked；SUPPORTING 失效 → coverage 降级但不自动 blocked；OPTIONAL 不影响核心有效性
+- **因果 Claim 三级区分**：explicit_attribution（原文明确说明）/ analyst_inference（有证据但因果是推断）/ unsupported_causal（证据不足）
 
 fact 必须直接绑定 Evidence；inference 必须能追踪其依赖的 Fact；opinion 必须明确假设或主观判断来源。
 

@@ -1,8 +1,10 @@
 # 竞赛要求对照矩阵（COMPETITION_REQUIREMENTS_MATRIX）
 
+> 版本：v3.2 编码前冻结版 ｜ 2026-09-16
 > 竞赛要求 → FinTrace 对应模块 → 当前状态 → 开发 CARD → 验收标准 → Demo 中如何体现。
 > 状态值：现有 = 已在仓库运行；部分 = 有基础需扩展；待建 = 由卡片新建。
 > 目标阈值未标数值的一律为"待 baseline 测试后冻结"，**禁止随意填写 95%/98% 类数字**。
+> v3.2 变更：创新体系命名冻结（ACME / Financial Claim Passport / Fragility Engine / Temporal Revalidation / FinFuzz）；双赛同构（见 DUAL_COMPETITION_POSITIONING.md）；Benchmark 增加 ablation 与 FinFuzz 集成（CARD-11）。
 
 ## A. 竞赛考察的核心能力
 
@@ -25,6 +27,11 @@
 | 结果可复现 | 同输入+同配置→重执行 | 部分 | 07/12 | replay success rate 目标待冻结 | 现场重跑一次任务 |
 | 事实/推论/观点区分 | Claim 三级模型 | 待建 | 09 | fact 100% 绑证据；inference 有 derived_from | 备忘录三级标注展示 |
 | 风险和适用边界说明 | Memo 模板 + 估值边界 | 待建 | 10/08 | 边界段非空且模板化生成 | 备忘录风险/证伪段 |
+| 会计约束自检 | ACME（Accounting-Constrained Multimodal Evidence Engine，创新一） | 待建 | 22 | 六类约束族（恒等式/表格/期间/跨期/跨源/跨模态）+ 异常定位 + 复核队列 | Demo 步骤 4b：约束违反检测展示 |
+| 证明链完整性 | Financial Claim Passport / FPO（金融AI结论护照，创新二） | 待建 | 23 | FPO + verify_claim() 五态（VERIFIED/DEGRADED/STALE/BLOCKED/CONFLICTED） | Demo 步骤 7b：护照 + VERIFY CLAIM |
+| 投资逻辑脆弱性分析 | Thesis Fragility Engine（创新三） | 待建 | 24 | critical dependency + minimal cut set + Monitoring Plan（确定性图算法） | Demo 步骤 10b：Fragility Map 展示 |
+| 金融语义对抗评测 | FinFuzz mutation suite（评测创新，集成 CARD-11） | 待建 | 26 | 10 类 mutation + per-error-type P/R/F1 + ablation | Demo E2 错误检出 + 答辩报表 |
+| 时间重验证 | Temporal Revalidation Engine（创新三） | 待建 | 25 | Version Lineage（四态）+ 三态区分 + 增量重算 + impact analysis | Demo 失败注入 F9 |
 
 ## B. 技术要求（通知原文）
 
@@ -50,9 +57,9 @@
 | 分析逻辑 | 诊断信号 + Claim 图谱 | unsupported claim 计数 = 0 |
 | 证据完整性 | Evidence Ledger + Graph | evidence coverage 目标待冻结 |
 | 结果稳定性 | 多次运行一致性 | multi-run consistency 指标 |
-| 技术创新性 | 见 MASTER_PLAN 创新收敛（6 项） | 现场答辩叙事 |
+| 技术创新性 | 四大创新体系：ACME（六类约束族多模态证据理解）/ Financial Claim Passport（金融AI结论护照）/ Thesis Fragility（投资逻辑脆弱性）/ Temporal Revalidation（时间重验证）/ FinFuzz（金融语义对抗评测） | 现场答辩叙事 + Demo 步骤 4b/7b/10b + ablation |
 | 金融专业性 | 口径/单位/重述/边界声明 | 失败注入演示 |
-| 现场展示/答辩 | DEMO_FLOW.md | 5 分钟剧本 + 失败注入 |
+| 现场展示/答辩 | DEMO_FLOW.md | 5 分钟剧本（12 步含创新展示）+ 失败注入 |
 
 ## D. 演示即证据（要求矩阵的最终落点）
 
