@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional
 
 from .evidence import EvidenceLedger, EvidenceRecord, LedgerValidation
-from .periods import FinancialPeriodEngine
+from .periods import FinancialPeriodEngine, supports_period_engine
 from .providers.snapshot import SnapshotProvider
 from .symbols import CanonicalSymbol
 
@@ -65,7 +65,12 @@ class CnResearchReportBuilder:
 
     @staticmethod
     def _latest_ttm(statements):
-        candidates = FinancialPeriodEngine.derive_ttm(statements, "income")
+        # Snapshots occasionally carry placeholder fiscal periods (e.g. recent
+        # IPOs whose Tushare rows omit ``end_type``).  Such rows would crash
+        # ``derive_ttm``; filter to rows the period engine can actually parse
+        # so TTM stays deterministic and the report still renders.
+        supported = [item for item in statements if supports_period_engine(getattr(item, "fiscal_period", None))]
+        candidates = FinancialPeriodEngine.derive_ttm(supported, "income")
         return max(candidates, key=lambda item: item.fiscal_period) if candidates else None
 
     @staticmethod

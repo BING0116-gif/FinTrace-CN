@@ -105,10 +105,11 @@ def test_validation_period_basis_mismatch():
     assert any("period_basis_mismatch" in e for e in result.errors)
 
 
-def test_validation_expired_data():
-    ledger = _sample_ledger()
+def test_validation_expired_data_latest_stale_blocks():
+    # If the latest (and only) figure for a metric is stale, it must block.
+    ledger = EvidenceLedger(snapshot_id="stale")
     ledger.add_fact(
-        evidence_id="fact_old", symbol="600519.SH", metric="close", value=500.0,
+        evidence_id="fact_old_close", symbol="600519.SH", metric="close", value=500.0,
         currency="CNY", unit="CNY/share",
         fiscal_period=None, period_basis="RAW",
         published_at="2020-01-01T15:00:00+08:00",
@@ -119,6 +120,40 @@ def test_validation_expired_data():
     result = validator.validate(ledger, research_as_of="2026-08-10T00:00:00+08:00")
     assert result.valid is False
     assert any("expired_data" in e for e in result.errors)
+
+
+def test_validation_expired_data_fresh_latest_with_stale_comparative_ok():
+    # A fresh latest alongside a stale older bar of the same metric is fine:
+    # only the latest is freshness-checked.
+    ledger = _sample_ledger()  # already contains a fresh close (2026-08-09)
+    ledger.add_fact(
+        evidence_id="fact_old_close", symbol="600519.SH", metric="close", value=500.0,
+        currency="CNY", unit="CNY/share",
+        fiscal_period=None, period_basis="RAW",
+        published_at="2020-01-01T15:00:00+08:00",
+        available_at="2020-01-01T15:00:00+08:00",
+        provider="test", field_path="bars.2020-01-01.close",
+    )
+    validator = FinancialValidator(max_data_age_days=365)
+    result = validator.validate(ledger, research_as_of="2026-08-10T00:00:00+08:00")
+    assert not any("expired_data" in e for e in result.errors)
+
+
+def test_validation_expired_data_comparative_exempt():
+    # A stale *comparative* (non-latest) figure must NOT block the report;
+    # only the latest period of each metric is freshness-checked.
+    ledger = _sample_ledger()
+    ledger.add_fact(
+        evidence_id="fact_old_revenue", symbol="600519.SH", metric="revenue", value=100000000000.0,
+        currency="CNY", unit="CNY",
+        fiscal_period="2024-12-31", period_basis="FY",
+        published_at="2025-04-30T00:00:00+08:00",
+        available_at="2025-04-30T00:00:00+08:00",
+        provider="test", field_path="statements.income.2024-12-31.revenue",
+    )
+    validator = FinancialValidator(max_data_age_days=365)
+    result = validator.validate(ledger, research_as_of="2026-08-10T00:00:00+08:00")
+    assert not any("expired_data" in e for e in result.errors)
 
 
 def test_validation_empty_ledger():

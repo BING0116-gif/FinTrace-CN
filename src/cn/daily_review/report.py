@@ -53,9 +53,12 @@ def render_report_html(snap: Dict[str, Any]) -> str:
     ``collect_daily_review(...)`` / ``workbench_service.load_market_review(...)``
     (i.e. it contains a ``data`` block plus top-level meta fields).
     """
-    d = snap.get("data", {})
-    meta = snap.get("source_metadata", {})
-    breadth = d.get("breadth", {})
+    d = snap.get("data") or {}
+    meta = snap.get("source_metadata") or {}
+    # live 快照中 breadth / 其他二级字段可能为 None（设计内 partial 行为），
+    # 必须 or {} 兜底，否则 breadth.get(...) 会对 None 调用 .get 抛
+    # 'NoneType' object has no attribute 'get'。
+    breadth = d.get("breadth") or {}
     up = breadth.get("up_count", 0)
     down = breadth.get("down_count", 0)
     flat = breadth.get("flat_count", 0)

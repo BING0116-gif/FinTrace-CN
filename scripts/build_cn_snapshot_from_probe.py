@@ -31,6 +31,13 @@ VALUE_MAPS: Dict[str, Dict[str, str]] = {
 }
 
 
+# Period kinds Tushare exposes for the consolidated primary report.  Anything
+# outside this set is treated as unverifiable and dropped (never renamed to a
+# ``UNKNOWN`` placeholder) so the snapshot never carries fiscal periods the
+# deterministic period engine cannot parse.
+_VALID_END_TYPES = {"1", "2", "3", "4"}
+
+
 def _number(value):
     return None if pd.isna(value) else float(value)
 
@@ -40,9 +47,20 @@ def _iso_date(value) -> str | None:
     return f"{raw[:4]}-{raw[4:6]}-{raw[6:8]}T00:00:00+08:00" if len(raw) == 8 and raw.isdigit() else None
 
 
-def _period(end_date: str, end_type: str, statement_type: str) -> tuple[str, str]:
-    period_name = {"1": "Q1", "2": "H1", "3": "9M", "4": "FY"}.get(str(end_type), "UNKNOWN")
-    year = end_date[:4]
+def _period(end_date: str, end_type: str, statement_type: str) -> tuple[str, str] | None:
+    """Return ``(fiscal_period, period_basis)`` for one Tushare row.
+
+    Returns ``None`` when ``end_type`` is missing or outside the four valid
+    quarter codes — a placeholder name like ``"2026UNKNOWN"`` would leak into
+    the snapshot and later crash ``FinancialPeriodEngine._parse_period``.  We
+    prefer to drop the row entirely: an untyped period is unverifiable data.
+    """
+    if str(end_type) not in _VALID_END_TYPES:
+        return None
+    period_name = {"1": "Q1", "2": "H1", "3": "9M", "4": "FY"}[str(end_type)]
+    year = str(end_date)[:4]
+    if not (len(year) == 4 and year.isdigit()):
+        return None
     return f"{year}{period_name}", f"{year}{period_name}{'_END' if statement_type == 'balance' else '_CUMULATIVE'}"
 
 
@@ -58,7 +76,12 @@ def _statements(probe_dir: Path, statement_type: str, filename: str):
     frame = frame.sort_values(["end_date", "effective_date"], ascending=[False, False]).drop_duplicates("end_date")
     records = []
     for _, row in frame.iterrows():
-        fiscal_period, period_basis = _period(str(row["end_date"]), str(row["end_type"]), statement_type)
+        result = _period(str(row["end_date"]), str(row["end_type"]), statement_type)
+        if result is None:
+            # Skip rows whose end_type the provider omitted (recent IPOs and
+            # other filings occasionally arrive without a quarter code).
+            continue
+        fiscal_period, period_basis = result
         records.append({
             "statement_type": statement_type,
             "fiscal_period": fiscal_period,

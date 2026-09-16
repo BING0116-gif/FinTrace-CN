@@ -218,6 +218,25 @@ def test_research_task_is_queued_idempotently_and_can_be_safely_rerun(tmp_path, 
     assert submitted == [first["id"], retry["id"]]
 
 
+def test_queued_research_task_exposes_safe_message_for_ui_render(tmp_path, monkeypatch):
+    """Regression: a freshly-queued research task must already carry a ``message``
+    field that the UI can render before the worker thread has had a chance to
+    transition the task. Otherwise the workbench page raises ``KeyError:
+    'message'`` immediately after the user submits the form.
+    """
+    monkeypatch.setattr(service, "TASK_DIR", tmp_path)
+    monkeypatch.setattr(service, "_submit_research_task", lambda task: None)
+    monkeypatch.setattr(service, "find_snapshot_for_symbol", lambda _symbol: {"id": "688836.SH_20260822_tushare_v1"})
+
+    task = service.start_research("688836.SH")
+
+    assert "message" in task and task["message"], "queued task must already expose a non-empty message"
+    assert task["status"] == "queued"
+    assert task["current_step"] == "queued"
+    persisted = json.loads((tmp_path / f"{task['id']}.json").read_text(encoding="utf-8"))
+    assert persisted.get("message") == task["message"]
+
+
 def test_research_worker_persists_failure_and_trace_without_masking_it(tmp_path, monkeypatch):
     monkeypatch.setattr(service, "TASK_DIR", tmp_path)
     task = service._new_task("600519.SH", "offline_research")

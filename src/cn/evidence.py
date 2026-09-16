@@ -117,6 +117,13 @@ class EvidenceLedger:
         return list(self._records.values())
 
     def add_statement_facts(self, *, symbol: str, statement: FinancialStatement, provider: str) -> List[EvidenceRecord]:
+        # Skip statements whose fiscal_period is not a supported engine tag.
+        # Such rows have unparseable ``YYYYUNKNOWN`` placeholders that would
+        # produce colliding evidence IDs and break deduplication.
+        if not __import__("src.cn.periods", fromlist=["supports_period_engine"]).supports_period_engine(
+            getattr(statement, "fiscal_period", None)
+        ):
+            return []
         created = []
         for metric, value in statement.values.items():
             if value is None:

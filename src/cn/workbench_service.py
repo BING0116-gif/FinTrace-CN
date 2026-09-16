@@ -23,7 +23,7 @@ from .domain import FinancialStatement
 from .demo_data import ensure_demo_snapshots
 from .industries import get_industry_code, is_financial_institution
 from .peer_workflow import PeerCandidate, result_to_dict, value_with_peers
-from .periods import FinancialPeriodEngine
+from .periods import FinancialPeriodEngine, supports_period_engine
 from .providers.snapshot import SnapshotProvider
 from .report import CnResearchReportBuilder
 from .symbols import normalize_cn_symbol
@@ -128,10 +128,19 @@ def _transition(task: dict[str, Any], status: str, *, step: str, message: str,
 
 
 def _new_task(symbol: str, kind: str) -> dict[str, Any]:
+    """Create a fresh task envelope with safe defaults.
+
+    Every field the UI may read is set up front so callers can render
+    `task['message']` (etc.) without KeyError before the worker thread has
+    had a chance to transition the task.
+    """
     created_at = _now()
     return {
         "id": f"{kind}_{symbol.replace('.', '_')}_{uuid4().hex[:12]}",
-        "symbol": symbol, "kind": kind, "created_at": created_at, "updated_at": created_at,
+        "symbol": symbol, "kind": kind,
+        "status": "queued", "current_step": "pending", "message": "任务已创建，待调度。",
+        "progress_percent": 0,
+        "created_at": created_at, "updated_at": created_at,
         "retry_count": 0, "trace": [], "cost": None, "token_usage": None,
     }
 
@@ -340,6 +349,8 @@ def start_research(symbol_text: str) -> dict[str, Any]:
             return {**duplicate, "idempotent_reuse": True}
         task = _new_task(symbol, "offline_research")
         task.update({"snapshot_id": existing["id"], "status": "queued", "progress_percent": 0,
+                     "current_step": "queued",
+                     "message": "任务已排队，等待受控离线研究执行。",
                      "trace_id": f"trace_{uuid4().hex[:12]}",
                      "idempotency_key": f"offline_research:{existing['id']}"})
         _record_event(task, "queued", status="queued", detail="任务已排队，等待受控离线研究执行。")
@@ -367,6 +378,8 @@ def rerun_task(task_id: str) -> dict[str, Any]:
             return {**duplicate, "idempotent_reuse": True}
         task = _new_task(previous["symbol"], "offline_research")
         task.update({"snapshot_id": snapshot_id, "status": "queued", "progress_percent": 0,
+                     "current_step": "queued",
+                     "message": f"从任务 {task_id} 安全重跑。",
                      "retry_of": task_id, "retry_count": previous.get("retry_count", 0) + 1,
                      "trace_id": f"trace_{uuid4().hex[:12]}",
                      "idempotency_key": f"offline_research:{snapshot_id}"})
@@ -532,6 +545,7 @@ def _latest_statement_value(statements: list[dict[str, Any]], statement_type: st
 
 
 def _ttm_value(statements: list[dict[str, Any]], metric: str) -> float | None:
+    statements = [item for item in statements if supports_period_engine(item.get("fiscal_period"))]
     ttm = FinancialPeriodEngine.derive_ttm([FinancialStatement(**item) for item in statements], "income")
     latest = max(ttm, key=lambda item: item.fiscal_period, default=None)
     return latest.values.get(metric) if latest else None
@@ -552,7 +566,7 @@ def _peer_candidate(payload: dict[str, Any], cutoff: str) -> PeerCandidate | Non
     industry_code = get_industry_code(code)
     if industry_code is None:
         return None
-    statements = payload["data"].get("statements", [])
+    statements = [item for item in payload["data"].get("statements", []) if supports_period_engine(item.get("fiscal_period"))]
     bars = [bar for bar in payload["data"].get("bars", []) if bar.get("adjustment") == "RAW" and bar["trade_date"] <= cutoff[:10]]
     latest_bar = max(bars, key=lambda item: item["trade_date"], default=None)
     if latest_bar is None:
@@ -591,7 +605,14 @@ def _summary(payload: dict[str, Any]) -> dict[str, Any]:
     data = payload["data"]
     bars = [bar for bar in data.get("bars", []) if bar.get("adjustment") == "RAW" and bar["trade_date"] <= payload["research_as_of"][:10]]
     latest = max(bars, key=lambda item: item["trade_date"]) if bars else None
-    statements = data.get("statements", [])
+    # Drop statements whose fiscal_period is not a supported ``YYYY{period}``
+    # tag.  Provider probes occasionally leave placeholder rows (recent IPOs,
+    # restatements) that the period engine cannot parse — including them would
+    # crash every report that calls ``derive_ttm``.
+    statements = [
+        item for item in data.get("statements", [])
+        if supports_period_engine(item.get("fiscal_period"))
+    ]
     ttm = FinancialPeriodEngine.derive_ttm(
         [FinancialStatement(**item) for item in statements], "income"
     )
@@ -686,6 +707,12 @@ def research_financials(snapshot_id: str) -> dict[str, Any]:
     symbol_key = payload["symbol"].replace(".", "_")
     statements, issues = [], []
     for raw in payload["data"].get("statements", []):
+        # Skip rows whose fiscal_period the period engine cannot parse.
+        # Snapshots occasionally carry ``"YYYYUNKNOWN"`` placeholders from
+        # provider rows with missing end_type; drop them so charts and TTM
+        # derivations downstream never see them.
+        if not supports_period_engine(raw.get("fiscal_period")):
+            continue
         statement = dict(raw)
         published_at = statement.get("published_at")
         is_future = bool(published_at and published_at > cutoff)
@@ -1039,7 +1066,8 @@ def research_evidence(snapshot_id: str) -> dict[str, Any]:
         })
     eligible_statements = [
         statement for statement in payload["data"].get("statements", [])
-        if not statement.get("published_at") or statement["published_at"] <= payload["research_as_of"]
+        if (not statement.get("published_at") or statement["published_at"] <= payload["research_as_of"])
+        and supports_period_engine(statement.get("fiscal_period"))
     ]
     for statement in eligible_statements:
         for metric, value in statement.get("values", {}).items():

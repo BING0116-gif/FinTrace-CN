@@ -14,6 +14,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from src.cn import workbench_service as service
+from src.cn import agent_service as agentservice
+from src.cn.agent_service import AgentResearchError
 from src.cn.errors import UnsupportedSymbolError
 
 
@@ -23,6 +25,17 @@ app = FastAPI(title="FinTrace-CN Workbench API", version="1.0.0")
 
 class ResearchRequest(BaseModel):
     symbol: str = Field(description="Canonical A-share symbol, for example 600519.SH.")
+
+
+class AgentResearchRequest(BaseModel):
+    query: str = Field(min_length=3, max_length=2000, description="Natural-language research question.")
+    symbol: str = Field(description="Canonical A-share symbol, for example 600519.SH.")
+    snapshot_id: str = Field(description="Versioned snapshot to run the Agent against.")
+    research_as_of: str | None = Field(default=None, description="Complete ISO-8601 point-in-time cutoff.")
+    model_name: str = Field(description="Registered model to invoke; must already be configured.")
+    temperature: float = Field(default=0.0, ge=0.0, le=1.0)
+    max_steps: int = Field(default=6, ge=1, le=10)
+    required_metrics: list[str] = Field(default_factory=list, description="Metrics the Validator must see.")
 
 
 class SnapshotAcquisitionRequest(ResearchRequest):
@@ -217,6 +230,65 @@ def task_diagnostics(task_id: str) -> ApiEnvelope:
         return _task_result(service.task_diagnostics(task_id))
     except KeyError as exc:
         raise HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND", "message": "Research task was not found."}) from exc
+
+
+# ---------------------------------------------------------------------------
+# AI Agent Research: real LLM tool-calling agent on the shared CnResearchAgent
+# ---------------------------------------------------------------------------
+def _agent_error(exc: Exception) -> HTTPException:
+    """Map application errors to typed API errors without leaking internals."""
+    if isinstance(exc, KeyError):
+        if "task_id" in str(exc):
+            return HTTPException(status_code=404, detail={"code": "TASK_NOT_FOUND", "message": "Agent research task was not found."})
+        return HTTPException(status_code=404, detail={"code": "UNKNOWN_SNAPSHOT", "message": "Research snapshot was not found."})
+    if isinstance(exc, AgentResearchError):
+        return HTTPException(status_code=422, detail={"code": "AGENT_RESEARCH_INVALID", "message": str(exc)})
+    return HTTPException(status_code=500, detail={"code": "AGENT_RESEARCH_ERROR", "message": "Agent research failed; see server logs."})
+
+
+@app.post("/api/agent/research", status_code=202)
+def start_agent_research(request: AgentResearchRequest) -> ApiEnvelope:
+    """Queue a real-model agent-research task on the shared CnResearchAgent."""
+    try:
+        task = agentservice.start_agent_research(
+            agentservice.AgentResearchRequest(
+                query=request.query,
+                symbol=request.symbol,
+                snapshot_id=request.snapshot_id,
+                research_as_of=request.research_as_of,
+                model_name=request.model_name,
+                temperature=request.temperature,
+                max_steps=request.max_steps,
+                required_metrics=tuple(request.required_metrics or []),
+            )
+        )
+    except (AgentResearchError, KeyError) as exc:
+        raise _agent_error(exc) from exc
+    return _ok(
+        {"task_id": task["id"], "task_status": task["status"], "kind": task["kind"]},
+        meta=_research_meta(task["snapshot_id"], {}),
+    )
+
+
+@app.get("/api/agent/research/{task_id}")
+def agent_research_detail(task_id: str) -> ApiEnvelope:
+    """Return the browser-safe public agent task (answer, state, validation, usage)."""
+    try:
+        data = agentservice.get_agent_task(task_id)
+    except KeyError as exc:
+        raise _agent_error(exc) from exc
+    if data.get("snapshot_id"):
+        return _ok(data, meta=_research_meta(data["snapshot_id"], {}))
+    return _ok(data)
+
+
+@app.get("/api/agent/research/{task_id}/trace")
+def agent_research_trace(task_id: str) -> ApiEnvelope:
+    """Return the credential-free event stream and tool trace for an agent task."""
+    try:
+        return _ok(agentservice.agent_task_events(task_id))
+    except KeyError as exc:
+        raise _agent_error(exc) from exc
 
 
 @app.post("/api/snapshots/acquire", status_code=202)

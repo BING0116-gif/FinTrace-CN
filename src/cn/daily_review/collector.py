@@ -492,24 +492,43 @@ def _build_akshare_sections(
                 sectors = []
 
         # --- market breadth (aggregate from full-market quote) ---
+        # EM (eastmoney) is blocked in some sandboxed networks, so when
+        # ``stock_zh_a_spot_em`` raises or returns nothing we fall back to
+        # ``stock_zh_a_spot`` (tonghuashun / sina-backed), which is reachable
+        # there and returns the same full-market quote (涨跌幅/成交额).  This
+        # keeps the breadth KPIs (上涨/下跌/平盘/涨停/跌停/两市成交额) populated
+        # in every environment instead of silently showing all-zero defaults.
+        # Missing values are never invented.
         breadth: Optional[Dict[str, Any]] = None
+
+        def _aggregate_breadth(spot: Any, src_label: str) -> Optional[Dict[str, Any]]:
+            if spot is None or getattr(spot, "empty", True) or "涨跌幅" not in spot.columns:
+                return None
+            chg = spot["涨跌幅"].astype(float)
+            up = int((chg > 0).sum()); down = int((chg < 0).sum()); flat = int((chg == 0).sum())
+            lu = int((chg >= 9.9).sum()); ld = int((chg <= -9.9).sum())
+            total_amt = (_to_float(spot["成交额"].astype(float).sum(), 0.0) or 0.0) / 1e8
+            turnover = _to_float(spot["换手率"].astype(float).mean(), None) if "换手率" in spot.columns else None
+            return {
+                "up_count": up, "down_count": down, "flat_count": flat,
+                "limit_up_count": lu, "limit_down_count": ld,
+                "total_amount_yi": total_amt, "turnover": turnover,
+                "evidence_id": _eid("breadth", "summary", as_of_date),
+                "source": src_label, "as_of": as_of, "unit": "家",
+            }
+
         try:
             spot = ak.stock_zh_a_spot_em()
-            if spot is not None and not spot.empty and "涨跌幅" in spot.columns:
-                chg = spot["涨跌幅"].astype(float)
-                up = int((chg > 0).sum()); down = int((chg < 0).sum()); flat = int((chg == 0).sum())
-                lu = int((chg >= 9.9).sum()); ld = int((chg <= -9.9).sum())
-                total_amt = (_to_float(spot["成交额"].astype(float).sum(), 0.0) or 0.0) / 1e8
-                turnover = _to_float(spot["换手率"].astype(float).mean(), None) if "换手率" in spot.columns else None
-                breadth = {
-                    "up_count": up, "down_count": down, "flat_count": flat,
-                    "limit_up_count": lu, "limit_down_count": ld,
-                    "total_amount_yi": total_amt, "turnover": turnover,
-                    "evidence_id": _eid("breadth", "summary", as_of_date),
-                    "source": source, "as_of": as_of, "unit": "家",
-                }
+            breadth = _aggregate_breadth(spot, "akshare_em")
         except Exception:
             breadth = None
+        if breadth is None:
+            # EM unreachable/empty -> THS full-market spot (reachable in sandbox)
+            try:
+                spot = ak.stock_zh_a_spot()
+                breadth = _aggregate_breadth(spot, "akshare_ths")
+            except Exception:
+                breadth = None
 
         # --- individual main-fund flow ranking ---
         money_flow: List[Dict[str, Any]] = []
@@ -658,7 +677,7 @@ def _build_live_review(review_date: str, token: str) -> Dict[str, Any]:
             "live_attempted": True,
                 "sources": {
                     "indices": source_ts, "limit_up": source_ak, "sectors": source_ak,
-                    "breadth": source_ak, "money_flow": source_ak, "hotspots": "akshare_news",
+                    "breadth": (breadth or {}).get("source", source_ak), "money_flow": source_ak, "hotspots": "akshare_news",
                 },
                 "partial": partial,
                 "note": "实时混合采集：指数 Tushare，涨停/板块/广度/资金流/热点 AkShare（免费源）；热点 driver 取自真实财经新闻原文+来源链接，绝不编造。任一源失败对应模块留空，绝不编数据。",

@@ -16,7 +16,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
+from dotenv import load_dotenv
 
+load_dotenv()
+
+from src.cn import agent_service
 from src.cn import workbench_service as service
 from src.cn.demo_data import BLOCKED_DEMO_SNAPSHOT_ID, DEMO_SNAPSHOT_ID
 from src.cn.daily_review.report import render_report_html
@@ -24,6 +28,7 @@ from src.cn.daily_review.report import render_report_html
 # Streamlit can keep imported modules alive across script reruns.  Reload the
 # local service module so a changed UI cannot call a stale service contract.
 service = importlib.reload(service)
+agent_service = importlib.reload(agent_service)
 REQUIRED_SERVICE_FUNCTIONS = (
     "research_summary", "research_peer_valuation", "research_readiness",
     "research_evidence", "research_validation", "research_market",
@@ -32,21 +37,23 @@ REQUIRED_SERVICE_FUNCTIONS = (
     "list_daily_reviews", "daily_review_summary", "daily_review_detail",
     "start_daily_review", "acquire_live_daily_review",
 )
+REQUIRED_AGENT_FUNCTIONS = ("start_agent_research", "get_agent_task", "agent_task_events")
 
 
 def service_contract_ready() -> bool:
     """Prevent a stale process from exposing a traceback to the user."""
     missing = [name for name in REQUIRED_SERVICE_FUNCTIONS if not callable(getattr(service, name, None))]
-    if missing:
+    agent_missing = [name for name in REQUIRED_AGENT_FUNCTIONS if not callable(getattr(agent_service, name, None))]
+    if missing or agent_missing:
         st.error("工作台组件版本不一致。请重启本地工作台后重试。")
-        st.caption(f"Missing service functions: {', '.join(missing)}")
+        st.caption(f"Missing service functions: {', '.join(missing + agent_missing)}")
         return False
     return True
 
 
 ROOT = Path(__file__).resolve().parent
 
-NAVIGATION = ["案例演示", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
+NAVIGATION = ["案例演示", "AI Agent 研究", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
 
 DEMO_CASES = {
     "成功研究：贵州茅台": {
@@ -254,6 +261,14 @@ html, body, .stApp, [data-testid="stMarkdownContainer"], .stMarkdown, p, li, spa
                'Helvetica Neue', Arial, sans-serif !important;
   -webkit-font-smoothing: antialiased;
   color: var(--ink);
+}}
+/* Restore Streamlit Material Symbols icon font; the global span override above
+   otherwise renders icon ligatures (e.g. expand_more) as literal text. */
+span[style*="Material Symbols Rounded"],
+span[class*="material"],
+span[class*="stIcon"],
+span[data-testid*="Icon"] {{
+  font-family: 'Material Symbols Rounded' !important;
 }}
 .stApp {{ background: {t['canvas']}; }}
 /* Sub-nav: parchment frosted look (Apple sub-nav-frosted analog). */
@@ -1012,7 +1027,7 @@ def evaluations() -> None:
     }
     rows = [{"指标": label, "值": summary.get(key) if summary.get(key) is not None else "未测量"}
             for key, label in metric_labels.items()]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    st.dataframe(pd.DataFrame(rows).astype({"值": str}), width="stretch", hide_index=True)
     regression = detail.get("regression")
     if regression:
         (st.success if regression.get("passed") else st.error)(
@@ -1047,10 +1062,10 @@ def tasks() -> None:
                 st.success(f"{task['symbol']} 的研究已生成；可从侧边栏切换到对应快照查看。")
                 load_research.clear()
             elif task["status"] == "needs_snapshot":
-                st.warning(task["message"])
-                st.code(task["next_step"], language=None)
+                st.warning(task.get("message") or "未找到本地版本化快照。")
+                st.code(task.get("next_step", ""), language=None)
             else:
-                st.error(f"任务状态：{task['status']} · {task['message']}")
+                st.error(f"任务状态：{task.get('status', '?')} · {task.get('message') or '—'}")
     st.markdown("#### 新公司数据采集")
     st.caption("采集仅在服务端执行。Tushare Token 只从服务器 `.env` 读取；每次采集固定最多 6 次调用，且第一次失败即停止。")
     with st.form("snapshot_acquisition", border=True):
@@ -1062,20 +1077,23 @@ def tasks() -> None:
             end = st.date_input("截止日期", value=date.today(), key="acquisition_end")
         acquire = st.form_submit_button("采集并固化快照", icon=":material/cloud_download:", width="content")
     if acquire:
-        try:
-            task = service.collect_snapshot(acquisition_symbol, start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"))
-        except ValueError as exc:
-            st.error(f"无法启动采集：{exc}")
+        if not acquisition_symbol or not acquisition_symbol.strip():
+            st.error("请输入待采集的 A 股代码。")
         else:
-            if task["status"] in {"queued", "running"}:
-                st.info(f"采集任务已进入 {task['status']} 状态：{task['message']}")
-            elif task["status"] in {"completed", "succeeded"}:
-                st.success("快照已创建。现在可输入该代码启动受控研究。")
-                load_research.clear()
-            elif task["status"] == "blocked":
-                st.warning(task["message"])
+            try:
+                task = service.collect_snapshot(acquisition_symbol, start_date=start.strftime("%Y%m%d"), end_date=end.strftime("%Y%m%d"))
+            except ValueError as exc:
+                st.error(f"无法启动采集：{exc}")
             else:
-                st.error(f"采集未完成：{task['message']}")
+                if task["status"] in {"queued", "running"}:
+                    st.info(f"采集任务已进入 {task['status']} 状态：{task['message']}")
+                elif task["status"] in {"completed", "succeeded"}:
+                    st.success("快照已创建。现在可输入该代码启动受控研究。")
+                    load_research.clear()
+                elif task["status"] == "blocked":
+                    st.warning(task.get("message") or "任务被阻断。")
+                else:
+                    st.error(f"采集未完成：{task.get('message') or '—'}")
     history = service.list_tasks()
     status_options = sorted({item.get("status", "unknown") for item in history})
     selected_statuses = st.multiselect(
@@ -1089,7 +1107,9 @@ def tasks() -> None:
         return
     rows = []
     for task in history:
-        rows.append({"任务 ID": task["id"], "标的": task["symbol"], "状态": task["status"], "创建时间": task["created_at"], "说明": task["message"]})
+        rows.append({"任务 ID": task["id"], "标的": task["symbol"], "状态": task.get("status", "?"),
+                     "创建时间": task.get("created_at", ""),
+                     "说明": task.get("message") or "—"})
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     with st.expander("任务详情、诊断与操作"):
@@ -1107,6 +1127,226 @@ def tasks() -> None:
             if st.button("安全重跑此任务", icon=":material/replay:", key=f"rerun_{selected_task_id}"):
                 st.success(f"已创建重跑任务 {service.rerun_task(selected_task_id)['id']}。")
                 st.rerun()
+
+
+def agent_research() -> None:
+    """Real LLM tool-calling agent research: submit, poll, and review the trace,
+    Evidence, Validator result and cost — all from the shared CnResearchAgent."""
+    st.markdown("### AI Agent 研究")
+    st.caption(
+        "自然语言问题 → 后台真实执行共享 CnResearchAgent → 展示工具轨迹、Evidence 与 Validator 结果。"
+        "快照是版本化历史数据，不是实时行情。未配置所选模型的 API Key 时，系统会明确报错而不会自动降级为 mock。"
+    )
+    catalog = service.list_research()
+    if not catalog:
+        st.info("尚无可用快照。")
+        return
+    labels = {f"{item['name']} · {item['symbol']}": item for item in catalog}
+    default_label = next(
+        (label for label, item in labels.items() if item["id"] == st.session_state.get("snapshot_picker")),
+        list(labels)[0],
+    )
+    selected_label = st.session_state.get("agent_snapshot_choice", default_label)
+    selected_item = labels.get(selected_label, labels[default_label])
+    default_cutoff = (selected_item.get("research_as_of") or selected_item.get("as_of") or "")[:19]
+
+    with st.form("agent_research_form", border=True):
+        query = st.text_area(
+            "研究问题",
+            placeholder="例如：分析 601012.SH 最新财报的收入、净利润和总资产变化，并引用证据。",
+            help="问题中的日期不会被自动解析为 cutoff；若需要指定研究截止时点，请填写右侧 Research cutoff。",
+        )
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.selectbox("研究快照", list(labels), index=list(labels).index(default_label), key="agent_snapshot_choice")
+        with c2:
+            st.text_input("证券代码", value=selected_item["symbol"], disabled=True, key="agent_symbol_display")
+        with c3:
+            cutoff = st.text_input(
+                "Research cutoff",
+                value=default_cutoff,
+                placeholder="例如 2025-04-30T23:00:00",
+                help="留空则使用所选快照自带的研究时点。若问题要求分析某个历史时点，请在此填写该日期。",
+            )
+        c4, c5, c6 = st.columns(3)
+        with c4:
+            model_name = st.text_input("模型", value="deepseek-v4-flash")
+        with c5:
+            max_steps = st.number_input("Max steps", min_value=1, max_value=10, value=6, step=1)
+        with c6:
+            temperature = st.number_input("Temperature", min_value=0.0, max_value=1.0, value=0.0, step=0.1)
+        st.caption(
+            "提示：问题里写的日期只给模型阅读，**不会**自动变成系统 cutoff；如需指定时点，请在 Research cutoff 中填写。"
+            "快照通常只含最近约 30 个交易日的价格 K 线，若问‘2025-04-30 的市盈率’而快照里没有该日价格，会触发 tool_error。"
+        )
+        run = st.form_submit_button("运行真实 Agent", icon=":material/play_arrow:", type="primary", width="content")
+    if run:
+        item = labels[st.session_state["agent_snapshot_choice"]]
+        try:
+            request = agent_service.AgentResearchRequest(
+                query=query.strip(), symbol=item["symbol"], snapshot_id=item["id"],
+                research_as_of=(cutoff.strip() or None), model_name=model_name.strip(),
+                temperature=float(temperature), max_steps=int(max_steps),
+            )
+            task = agent_service.start_agent_research(request)
+            st.session_state["agent_task_id"] = task["id"]
+            st.rerun()
+        except agent_service.AgentResearchError as exc:
+            st.error(f"无法启动 Agent：{exc}")
+        except KeyError as exc:
+            st.error(f"快照不存在：{exc}")
+
+    agent_task_view()
+
+
+@st.fragment(run_every="10s")
+def agent_task_view() -> None:
+    """Poll one tracked agent task and render its result tabs once terminal."""
+    task_id = st.session_state.get("agent_task_id")
+    if not task_id:
+        st.caption("提交问题后，这里会实时展示 Agent 的执行状态、工具轨迹与验证结果。")
+        return
+    try:
+        public = agent_service.get_agent_task(task_id)
+        stream = agent_service.agent_task_events(task_id)
+    except KeyError:
+        st.info("该任务记录已不存在。")
+        return
+
+    status = public.get("status", "unknown")
+    st.markdown(f"#### 任务 `{task_id}`")
+    st.caption(f"状态：**{status}** · 当前步骤：{public.get('current_step') or '—'} · 更新于 {public.get('updated_at') or '—'}")
+    progress = service.get_task_progress(task_id).get("progress_percent")
+    st.progress(int(progress or 0), text=public.get("message") or status)
+
+    if status in {"queued", "running"}:
+        if st.button("取消任务", icon=":material/cancel:", key=f"cancel_agent_{task_id}"):
+            with st.spinner("正在请求协作式停止…"):
+                try:
+                    st.info(service.cancel_task(task_id)["message"])
+                except ValueError as exc:
+                    st.error(f"无法取消：{exc}")
+            st.rerun()
+        return
+
+    tabs = st.tabs(["Final Answer", "Agent Trace", "Evidence", "Validator", "Cost & Metadata"])
+    with tabs[0]:
+        _agent_final_answer(public, status)
+    with tabs[1]:
+        _agent_trace(public, stream)
+    with tabs[2]:
+        _agent_evidence(public)
+    with tabs[3]:
+        _agent_validator(public)
+    with tabs[4]:
+        _agent_cost(public)
+
+
+def _agent_final_answer(public: dict, status: str) -> None:
+    validation = public.get("validation") or {}
+    if status == "blocked" and not validation.get("valid"):
+        st.warning("BLOCKED — Validator 未通过，模型原始结论未经验证，不能作为结果展示。")
+        errors = validation.get("errors") or []
+        if errors:
+            st.markdown("阻断原因：\n" + "\n".join(f"- `{error}`" for error in errors))
+        diagnostic = (public.get("research_state") or {}).get("report")
+        if diagnostic:
+            with st.expander("内部诊断（仅供排查，不作为用户结论）"):
+                st.caption(diagnostic)
+        return
+    if status == "cancelled":
+        st.info(public.get("answer") or "研究任务已取消。")
+        return
+    if status == "failed":
+        st.error(f"任务失败：{public.get('error') or '未知异常'}")
+        return
+    answer = public.get("answer") or (public.get("research_state") or {}).get("report") or ""
+    st.markdown(answer)
+
+
+def _agent_trace(public: dict, stream: dict) -> None:
+    traces = (public.get("research_state") or {}).get("tool_trace", []) or []
+    if not traces:
+        st.caption("尚无工具执行记录。")
+    else:
+        rows = []
+        for index, trace in enumerate(traces, start=1):
+            args_text = json.dumps(trace.get("arguments", {}), ensure_ascii=False)
+            if len(args_text) > 200:
+                args_text = args_text[:200] + "…"
+            rows.append({
+                "Step": index,
+                "Tool": trace.get("tool_name"),
+                "Arguments": args_text,
+                "Status": trace.get("result_status"),
+                "Evidence": ", ".join(trace.get("evidence_ids", []) or []),
+                "Duration (s)": _seconds_between(trace.get("started_at"), trace.get("ended_at")),
+            })
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
+    with st.expander("事件流（已脱敏）"):
+        event_rows = [
+            {"时间": event.get("timestamp"), "事件": event.get("event"),
+             "状态": event.get("status"), "说明": event.get("detail", "")}
+            for event in (stream.get("events") or [])
+        ]
+        if event_rows:
+            st.dataframe(pd.DataFrame(event_rows), width="stretch", hide_index=True)
+        else:
+            st.caption("暂无事件。")
+
+
+def _agent_evidence(public: dict) -> None:
+    research_state = public.get("research_state") or {}
+    facts = research_state.get("facts", []) or []
+    calculations = research_state.get("calculations", []) or []
+    st.caption(f"已注册 Evidence：{len(facts)} 个事实 · {len(calculations)} 个计算")
+    if facts:
+        st.markdown("**Facts**")
+        st.code("\n".join(facts), language=None)
+    if calculations:
+        st.markdown("**Calculations**")
+        st.code("\n".join(calculations), language=None)
+    if not facts and not calculations:
+        st.caption("没有可展示的 Evidence。")
+
+
+def _agent_validator(public: dict) -> None:
+    validation = public.get("validation") or {}
+    valid = bool(validation.get("valid"))
+    if public.get("status") == "blocked" or not valid:
+        st.error("BLOCKED")
+        errors = validation.get("errors") or []
+        if errors:
+            st.markdown("阻断原因：\n" + "\n".join(f"- `{error}`" for error in errors))
+        else:
+            st.write("Validator 未通过；无详细错误。")
+    else:
+        st.success("PASSED")
+        st.write("结论已通过确定性 Validator（无需 LLM 复判金融数字）。")
+
+
+def _agent_cost(public: dict) -> None:
+    usage = public.get("usage") or {}
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("LLM 调用", usage.get("llm_calls") or 0)
+    metric_cols[1].metric("工具调用", usage.get("tool_calls") or 0)
+    metric_cols[2].metric("成本 (USD)", usage.get("cost_usd") or 0.0)
+    metric_cols[3].metric("延迟 (s)", usage.get("latency_seconds") or 0.0)
+    metadata = [
+        ("任务 ID", public.get("id")), ("状态", public.get("status")),
+        ("模型", public.get("model_name")), ("温度", public.get("temperature")),
+        ("Max steps", public.get("max_steps")), ("快照", public.get("snapshot_id")),
+        ("Research cutoff", public.get("research_as_of")),
+        ("创建时间", public.get("created_at")), ("更新时间", public.get("updated_at")),
+    ]
+    st.table(pd.DataFrame([{"项": key, "值": value} for key, value in metadata]).astype({"值": str}))
+
+
+def _seconds_between(start, end) -> float | None:
+    try:
+        return round((datetime.fromisoformat(end) - datetime.fromisoformat(start)).total_seconds(), 3)
+    except (TypeError, ValueError):
+        return None
 
 
 def daily_review() -> None:
@@ -1186,31 +1426,77 @@ def daily_review() -> None:
     labels = {f"{item['review_as_of']} · {item['id']}": item["id"] for item in reviews}
     label_list = list(labels)
 
+    # ---- 防御性取值工具（防止单点 None 导致整页渲染中止）----
+    def _safe_get(d, *keys, default=None):
+        cur = d
+        for k in keys:
+            if cur is None:
+                return default
+            if isinstance(cur, dict):
+                cur = cur.get(k, default)
+            elif isinstance(cur, (list, tuple)) and isinstance(k, int):
+                try:
+                    cur = cur[k]
+                except (IndexError, TypeError):
+                    return default
+            else:
+                return default
+        return cur if cur is not None else default
+
+    def _safe_detail(sid, kind):
+        try:
+            return service.daily_review_detail(sid, kind) or {}
+        except Exception:
+            return {}
+
     # Determine default index: auto-select newly acquired snapshot if available.
     auto_id = st.session_state.pop("dr_auto_select_snapshot", None)
-    default_index = 0
+    new_label = None
     if auto_id:
+        for lbl, sid in labels.items():
+            if sid == auto_id:
+                new_label = lbl
+                break
+        if new_label is not None:
+            # 关键修复：清除持久化的 widget state，使新的 index 真正生效
+            st.session_state.pop("daily_review_picker", None)
+
+    default_index = 0
+    if new_label is not None:
         for idx, lbl in enumerate(label_list):
-            if labels[lbl] == auto_id:
+            if lbl == new_label:
                 default_index = idx
                 break
 
     selected = st.selectbox("复盘快照", label_list, index=default_index, key="daily_review_picker")
-    snapshot_id = labels[selected]
-    summary = service.daily_review_summary(snapshot_id)
-    panorama = service.daily_review_detail(snapshot_id, "panorama")
-    hotspots = service.daily_review_detail(snapshot_id, "hotspots")
+    snapshot_id = labels.get(selected) if selected in labels else None
+    if not snapshot_id:
+        # 选择已过期（label 与 id 映射错位）：重置后重跑，避免后续对 None 深度索引
+        st.session_state.pop("daily_review_picker", None)
+        st.warning("复盘快照选择已过期，正在重新加载列表…")
+        st.rerun()
 
-    synth = summary["is_synthetic_demo"]
-    gate_status = summary["validation"]["status"]
+    try:
+        summary = service.daily_review_summary(snapshot_id) or {}
+    except Exception:
+        summary = {}
+    panorama = _safe_detail(snapshot_id, "panorama")
+    hotspots = _safe_detail(snapshot_id, "hotspots")
+
+    # 顶层字段全部经 _safe_get，杜绝 summary["validation"]["status"] 这类 KeyError/TypeError
+    synth = bool(_safe_get(summary, "is_synthetic_demo", default=False))
+    validation = _safe_get(summary, "validation", default={}) or {}
+    gate_status = validation.get("status", "unknown")
+    conclusion_allowed = bool(validation.get("conclusion_allowed", False))
     st.markdown(
         f'<div class="statusbar">'
-        f'<span class="badge snapshot">复盘时点 {summary["review_as_of"]}</span>'
+        f'<span class="badge snapshot">复盘时点 {_safe_get(summary, "review_as_of", default="?")}</span>'
         f'<span class="badge {"warning" if synth else "verified"}">'
-        f'{"离线演示 synthetic_demo" if synth else "来源 " + str(summary["provider"])}</span>'
+        f'{"离线演示 synthetic_demo" if synth else "来源 " + str(_safe_get(summary, "provider", default="?"))}</span>'
         f'<span class="badge {"blocked" if gate_status == "blocked" else "verified"}">校验 {gate_status}</span>'
-        f'<span class="badge neutral">确定性结论 {"允许" if summary["validation"]["conclusion_allowed"] else "阻断"}</span>'
-        f'<span class="badge neutral">指数 {summary["index_count"]} · 板块 {summary["sector_count"]} · 涨停 {summary["limit_up_count"]}</span>'
+        f'<span class="badge neutral">确定性结论 {"允许" if conclusion_allowed else "阻断"}</span>'
+        f'<span class="badge neutral">指数 {_safe_get(summary, "index_count", default=0)} · '
+        f'板块 {_safe_get(summary, "sector_count", default=0)} · 涨停 {_safe_get(summary, "limit_up_count", default=0)}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -1218,10 +1504,6 @@ def daily_review() -> None:
         st.warning("当前为离线演示快照（synthetic_demo），数值仅供架构演示，不代表真实行情，绝不用于实盘决策。", icon=":material/shield:")
 
     # ---- Full HTML report: render locally inline (no API server dependency) ----
-    # 设计说明：UI 永远不应该要求用户去启动另一个服务才能看到内容；HTML 就在
-    # 当前 streamlit 进程内用 src.cn.daily_review.report 渲染，sandbox 友好、
-    # 不打断注意力。API 路由 /api/daily-review/{id}/report 仍然存在供 cURL /
-    # CI 截图测试，外部脚本可独立使用，与本页 UI 解耦。
     try:
         snapshot = service.load_market_review(snapshot_id)
         html_bytes = render_report_html(snapshot).encode("utf-8")
@@ -1234,9 +1516,6 @@ def daily_review() -> None:
                 f"选中快照：`{snapshot_id}` · 大小 "
                 f"{len(html_bytes)//1024} KB · 数据全部带 evidence_id 并标注 synthetic_demo。"
             )
-            # st.iframe renders the full HTML report inline; the report
-            # itself owns its scroll behaviour so no extra `scrolling` arg.
-            # st.iframe accepts str | Path, decode the bytes first.
             st.iframe(html_bytes.decode("utf-8"), height=1800)
         d_col1, d_col2 = st.columns([1, 3])
         with d_col1:
@@ -1255,107 +1534,147 @@ def daily_review() -> None:
                 f"/api/daily-review/{snapshot_id}/report` 获取同一份 HTML。"
             )
 
+    # 各渲染小节独立容错：单点模块缺失/异常 -> 仅显示「未覆盖」，不崩整页
     st.markdown("#### 指数收盘")
-    indices = panorama["sections"]["index_closing"]["indices"]
-    cols = st.columns(min(len(indices), 3) or 1)
-    for idx, item in enumerate(indices):
-        with cols[idx % len(cols)]:
-            with st.container(border=True):
-                st.markdown(f"**{item['index_name']}**")
-                st.markdown(f"<div style='font-size:1.4rem'>{item['close']:.2f}</div>", unsafe_allow_html=True)
-                color = "#c0392b" if item["pct_change"] >= 0 else "#1c9a82"
-                sign = "+" if item["pct_change"] >= 0 else ""
-                st.markdown(
-                    f"<span style='color:{color};font-weight:650'>{sign}{item['pct_change']:.2f}% "
-                    f"({sign}{item['change']:.2f})</span> · 额 {item['amount_yi']:.0f}亿",
-                    unsafe_allow_html=True,
-                )
-                st.caption(f"Evidence: {item['evidence_id']}")
+    try:
+        indices = _safe_get(panorama, "sections", "index_closing", "indices", default=[]) or []
+        if not indices:
+            st.info("指数收盘数据未覆盖。")
+        else:
+            cols = st.columns(min(len(indices), 3) or 1)
+            for idx, item in enumerate(indices):
+                with cols[idx % len(cols)]:
+                    with st.container(border=True):
+                        st.markdown(f"**{item.get('index_name', '?')}**")
+                        close = item.get("close")
+                        close_txt = f"{close:.2f}" if isinstance(close, (int, float)) else "—"
+                        st.markdown(f"<div style='font-size:1.4rem'>{close_txt}</div>", unsafe_allow_html=True)
+                        pc = item.get("pct_change") or 0
+                        color = "#c0392b" if pc >= 0 else "#1c9a82"
+                        sign = "+" if pc >= 0 else ""
+                        chg = item.get("change")
+                        amt = item.get("amount_yi")
+                        if isinstance(chg, (int, float)) and isinstance(amt, (int, float)):
+                            st.markdown(
+                                f"<span style='color:{color};font-weight:650'>{sign}{pc:.2f}% "
+                                f"({sign}{chg:.2f})</span> · 额 {amt:.0f}亿",
+                                unsafe_allow_html=True,
+                            )
+                        else:
+                            st.markdown(
+                                f"<span style='color:{color};font-weight:650'>{sign}{pc:.2f}%</span>",
+                                unsafe_allow_html=True,
+                            )
+                        st.caption(f"Evidence: {item.get('evidence_id', '?')}")
+    except Exception:
+        st.info("指数收盘数据渲染失败（未覆盖）。")
 
     st.markdown("#### 板块涨幅")
-    sectors = hotspots["sections"]["hot_sectors"]["items"]
-    if sectors:
-        sdf = pd.DataFrame(sectors)
-        fig = px.bar(
-            sdf, x="sector_name", y="pct_change", color="pct_change",
-            color_continuous_scale=["#1c9a82", "#c9d3e0", "#c0392b"],
-            custom_data=["sector_type", "leading_stock", "net_inflow_yi", "evidence_id"],
-        )
-        fig.update_traces(hovertemplate=(
-            "板块: %{x}<br>涨幅: %{y:.2f}%<br>类型: %{customdata[0]}<br>领涨: %{customdata[1]}"
-            "<br>净流入: %{customdata[2]:.1f}亿<br>Evidence: %{customdata[3]}<extra></extra>"))
-        fig.update_layout(height=360, paper_bgcolor="#fff", plot_bgcolor="#fff",
-                          margin=dict(l=15, r=15, t=30, b=80), yaxis_title="%", xaxis_title="")
-        fig.update_coloraxes(showscale=False)
-        st.plotly_chart(fig, width="stretch", key=f"dr_sector_{snapshot_id}")
-    else:
-        st.info("板块数据未覆盖。")
+    try:
+        sectors = _safe_get(hotspots, "sections", "hot_sectors", "items", default=[]) or []
+        if sectors:
+            sdf = pd.DataFrame(sectors)
+            fig = px.bar(
+                sdf, x="sector_name", y="pct_change", color="pct_change",
+                color_continuous_scale=["#1c9a82", "#c9d3e0", "#c0392b"],
+                custom_data=["sector_type", "leading_stock", "net_inflow_yi", "evidence_id"],
+            )
+            fig.update_traces(hovertemplate=(
+                "板块: %{x}<br>涨幅: %{y:.2f}%<br>类型: %{customdata[0]}<br>领涨: %{customdata[1]}"
+                "<br>净流入: %{customdata[2]:.1f}亿<br>Evidence: %{customdata[3]}<extra></extra>"))
+            fig.update_layout(height=360, paper_bgcolor="#fff", plot_bgcolor="#fff",
+                              margin=dict(l=15, r=15, t=30, b=80), yaxis_title="%", xaxis_title="")
+            fig.update_coloraxes(showscale=False)
+            st.plotly_chart(fig, width="stretch", key=f"dr_sector_{snapshot_id}")
+        else:
+            st.info("板块数据未覆盖。")
+    except Exception:
+        st.info("板块涨幅渲染失败（未覆盖）。")
 
     left, right = st.columns(2)
     with left:
         st.markdown("#### 连板天梯")
-        ladder = panorama["sections"]["stock_dynamics"]["ladder"]
-        if ladder:
-            ldf = pd.DataFrame(ladder)[["name", "board_days", "close", "pct_change", "limit_order_yi", "logic"]]
-            st.dataframe(ldf, width="stretch", hide_index=True,
-                         column_config={"name": "名称", "board_days": "连板", "close": st.column_config.NumberColumn("价", format="%.2f"),
-                                        "pct_change": "涨%", "limit_order_yi": "封单(亿)", "logic": "逻辑"})
-        else:
-            st.info("涨停天梯未覆盖。")
+        try:
+            ladder = _safe_get(panorama, "sections", "stock_dynamics", "ladder", default=[]) or []
+            if ladder:
+                ldf = pd.DataFrame(ladder)[["name", "board_days", "close", "pct_change", "limit_order_yi", "logic"]]
+                st.dataframe(ldf, width="stretch", hide_index=True,
+                             column_config={"name": "名称", "board_days": "连板", "close": st.column_config.NumberColumn("价", format="%.2f"),
+                                            "pct_change": "涨%", "limit_order_yi": "封单(亿)", "logic": "逻辑"})
+            else:
+                st.info("涨停天梯未覆盖。")
+        except Exception:
+            st.info("涨停天梯渲染失败（未覆盖）。")
         st.markdown("#### 主力净流入 TOP")
-        inflow = hotspots["sections"]["top_net_inflow"]["items"]
-        if inflow:
-            idf = pd.DataFrame(inflow)
-            st.dataframe(idf, width="stretch", hide_index=True,
-                         column_config={"name": "名称", "net_inflow_yi": st.column_config.NumberColumn("净流入(亿)", format="%.1f"),
-                                        "main_inflow_yi": "主买(亿)", "evidence_id": "Evidence"})
-        else:
-            st.info("主力净流入未覆盖。")
+        try:
+            inflow = _safe_get(hotspots, "sections", "top_net_inflow", "items", default=[]) or []
+            if inflow:
+                idf = pd.DataFrame(inflow)
+                st.dataframe(idf, width="stretch", hide_index=True,
+                             column_config={"name": "名称", "net_inflow_yi": st.column_config.NumberColumn("净流入(亿)", format="%.1f"),
+                                            "main_inflow_yi": "主买(亿)", "evidence_id": "Evidence"})
+            else:
+                st.info("主力净流入未覆盖。")
+        except Exception:
+            st.info("主力净流入渲染失败（未覆盖）。")
     with right:
         st.markdown("#### 全景复盘结论")
-        st.write(panorama["sections"]["index_closing"]["summary"])
-        chars = panorama["sections"]["market_characteristics"]
-        if chars.get("up_ratio_percent") is not None:
-            st.write(
-                f"红盘占比 **{chars['up_ratio_percent']}%**，涨跌家数 {chars['up_count']}/{chars['down_count']}，"
-                f"涨停 {chars['limit_up_count']} / 跌停 {chars['limit_down_count']}，成交额 {chars['total_amount_yi']:.0f} 亿。"
-            )
-        dev = panorama["sections"]["deviation_review"]
-        if dev.get("supported"):
-            st.write(dev["observation"])
-        st.caption("次日推演 / 宏观快照：离线快照未覆盖，不输出确定性预测。")
+        try:
+            st.write(_safe_get(panorama, "sections", "index_closing", "summary", default="（无结论）"))
+            chars = _safe_get(panorama, "sections", "market_characteristics", default={}) or {}
+            if chars.get("up_ratio_percent") is not None:
+                st.write(
+                    f"红盘占比 **{chars['up_ratio_percent']}%**，涨跌家数 {chars['up_count']}/{chars['down_count']}，"
+                    f"涨停 {chars['limit_up_count']} / 跌停 {chars['limit_down_count']}，成交额 {chars['total_amount_yi']:.0f} 亿。"
+                )
+            dev = _safe_get(panorama, "sections", "deviation_review", default={}) or {}
+            if dev.get("supported"):
+                st.write(dev["observation"])
+            st.caption("次日推演 / 宏观快照：离线快照未覆盖，不输出确定性预测。")
+        except Exception:
+            st.info("全景复盘结论渲染失败（未覆盖）。")
         st.markdown("#### 热点题材")
-        for theme in panorama["sections"]["core_drivers"]["themes"]:
-            with st.container(border=True):
-                st.markdown(f"**{theme['theme_name']}**")
-                if theme.get("ai_generated") and theme.get("ai_summary"):
-                    st.markdown(f"{theme['ai_summary']}  `AI 润色`")
-                    with st.popover("查看原始新闻"):
-                        st.write(theme["driver"])
-                        links = theme.get("news_links") or []
-                        if links:
-                            st.markdown("来源：" + "  ".join(f"[链接]({u})" for u in links if u))
-                else:
-                    st.write(theme["driver"])
-                st.caption("相关：" + "、".join(theme["related_stocks"]) + f" · {theme['evidence_id']}")
+        try:
+            themes = _safe_get(panorama, "sections", "core_drivers", "themes", default=[]) or []
+            if not themes:
+                st.info("热点题材未覆盖。")
+            for theme in themes:
+                with st.container(border=True):
+                    st.markdown(f"**{theme.get('theme_name', '?')}**")
+                    if theme.get("ai_generated") and theme.get("ai_summary"):
+                        st.markdown(f"{theme.get('ai_summary', '')}  `AI 润色`")
+                        with st.popover("查看原始新闻"):
+                            st.write(theme.get("driver", ""))
+                            links = theme.get("news_links") or []
+                            if links:
+                                st.markdown("来源：" + "  ".join(f"[链接]({u})" for u in links if u))
+                    else:
+                        st.write(theme.get("driver", ""))
+                    st.caption("相关：" + "、".join(theme.get("related_stocks") or []) + f" · <span class='evidence'>{theme.get('evidence_id', '?')}</span>", unsafe_allow_html=True)
+        except Exception:
+            st.info("热点题材渲染失败（未覆盖）。")
 
     with st.expander("证据抽屉 · Evidence", expanded=False):
-        recs = panorama.get("evidence_records", [])
-        if recs:
-            rdf = pd.DataFrame([
-                {"Evidence ID": r["evidence_id"], "指标": r["metric"], "数值": r["value"],
-                 "单位": r["unit"], "期间": r.get("period"), "来源": r["source"]}
-                for r in recs
-            ])
-            st.dataframe(rdf, width="stretch", hide_index=True, height=360,
-                         column_config={"Evidence ID": "Evidence ID",
-                                        "数值": st.column_config.NumberColumn("数值", format="%.4f")})
-            export = {"snapshot_id": snapshot_id, "research_as_of": panorama["research_as_of"],
-                      "validation": panorama["validation"], "evidence_records": recs}
-            st.download_button("下载全部证据（JSON）", json.dumps(export, ensure_ascii=False, indent=2),
-                               f"{snapshot_id}_evidence.json", "application/json", icon=":material/download:")
-        else:
-            st.info("该快照暂无可导出数值证据。")
+        try:
+            recs = panorama.get("evidence_records", []) or []
+            if recs:
+                rdf = pd.DataFrame([
+                    {"Evidence ID": r.get("evidence_id"), "指标": r.get("metric"), "数值": r.get("value"),
+                     "单位": r.get("unit"), "期间": r.get("period"), "来源": r.get("source")}
+                    for r in recs
+                ])
+                st.dataframe(rdf, width="stretch", hide_index=True, height=360,
+                             column_config={"Evidence ID": "Evidence ID",
+                                            "数值": st.column_config.NumberColumn("数值", format="%.4f")})
+                export = {"snapshot_id": snapshot_id, "research_as_of": panorama.get("research_as_of"),
+                          "validation": panorama.get("validation"), "evidence_records": recs}
+                st.download_button("下载全部证据（JSON）", json.dumps(export, ensure_ascii=False, indent=2),
+                                   f"{snapshot_id}_evidence.json", "application/json", icon=":material/download:")
+            else:
+                st.info("该快照暂无可导出数值证据。")
+        except Exception:
+            st.info("证据抽屉渲染失败（未覆盖）。")
+
 
 
 def main() -> None:
@@ -1372,6 +1691,9 @@ def main() -> None:
         st.caption("RESEARCH TERMINAL v0.2\n\n多快照 · 只读工作台")
     if page == "案例演示":
         demo_cases(catalog)
+        return
+    if page == "AI Agent 研究":
+        agent_research()
         return
     if page == "每日复盘":
         daily_review()

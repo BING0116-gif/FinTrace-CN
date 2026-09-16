@@ -18,6 +18,19 @@ _PERIOD = re.compile(r"^(?P<year>\d{4})(?P<kind>Q1|H1|9M|FY)$")
 _FLOW_TYPES = {"income", "cashflow"}
 
 
+def supports_period_engine(fiscal_period: str | None) -> bool:
+    """Return ``True`` iff the fiscal-period tag can feed the period engine.
+
+    Snapshots occasionally carry a placeholder like ``"2026UNKNOWN"`` when a
+    provider omitted ``end_type`` for a recent IPO filing; the engine itself
+    rejects those with :class:`PeriodEngineError`.  Callers that materialise
+    snapshots should filter through this predicate instead of catching the
+    exception downstream — dropping the noisy row keeps TTM derivations
+    deterministic and the page renderable.
+    """
+    return bool(fiscal_period) and bool(_PERIOD.fullmatch(str(fiscal_period)))
+
+
 class PeriodEngineError(ValueError):
     """Input periods are unsuitable for a deterministic conversion."""
 

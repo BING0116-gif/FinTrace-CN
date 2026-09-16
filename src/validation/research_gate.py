@@ -161,7 +161,8 @@ class SnapshotEvidenceLedger:
         self._records = records
 
     def records(self) -> List[Any]:
-        return [SimpleNamespace(**record) for record in self._records]
+        defaults = {"field_path": None, "source_url": None, "input_ids": (), "operation": None}
+        return [SimpleNamespace(**{**defaults, **record}) for record in self._records]
 
 
 def snapshot_evidence_records(

@@ -57,6 +57,32 @@ def _unit_family(unit: str) -> Optional[str]:
     return None
 
 
+# Non-fiscal period bases: price bars (RAW) and market snapshots
+# (POINT_IN_TIME) are not fiscal periods and may legitimately coexist with
+# fiscal bases on *different* metrics.
+_NON_FISCAL_PERIOD_BASES = {"RAW", "POINT_IN_TIME"}
+
+
+def _period_class(period_basis: Optional[str]) -> Optional[str]:
+    """Collapse a period_basis string to its comparability class.
+
+    - ``*_CUMULATIVE`` (income/cash-flow statements) map to ``CUMULATIVE``.
+    - ``*_END`` (balance-sheet point-in-period values) map to ``END``.
+    - Non-fiscal bases (RAW, POINT_IN_TIME) keep their own class.
+    - Bare conventions (FY, TTM, Q1, ...) keep their own class so that a
+      genuine convention clash (e.g. FY vs TTM for the same metric) is caught.
+    """
+    if not period_basis:
+        return None
+    if period_basis in _NON_FISCAL_PERIOD_BASES:
+        return period_basis
+    if period_basis.endswith("_CUMULATIVE"):
+        return "CUMULATIVE"
+    if period_basis.endswith("_END"):
+        return "END"
+    return period_basis
+
+
 def _is_expired(available_at: Optional[str], research_as_of: str, max_age_days: int = 365) -> bool:
     if available_at is None:
         return False
@@ -126,7 +152,18 @@ class FinancialValidator:
                 errors.append(f"future_fact:{record.evidence_id}")
 
     def _check_expired_data(self, records: List[EvidenceRecord], research_as_of: str, errors: List[str]) -> None:
+        # Only the most recent period of each metric must be fresh.  Earlier
+        # periods are legitimate historical comparatives and are inherently
+        # older than the research cutoff, so they must not block the report.
+        latest: Dict[str, tuple] = {}
         for record in records:
+            metric = getattr(record, "metric", None)
+            if not metric:
+                continue
+            available = getattr(record, "available_at", None) or ""
+            if metric not in latest or available > latest[metric][0]:
+                latest[metric] = (available, record)
+        for _, record in latest.values():
             if _is_expired(record.available_at, research_as_of, self._max_age):
                 errors.append(f"expired_data:{record.evidence_id}")
 
@@ -159,14 +196,26 @@ class FinancialValidator:
 
     @staticmethod
     def _check_period_consistency(records: List[EvidenceRecord], errors: List[str], warnings: List[str]) -> None:
-        bases = set()
+        # Group basis classes by metric.  A normal A-share report legitimately
+        # mixes annual (FY), quarterly (Q1) and point-in-time market snapshots
+        # *across different metrics*.  We only block a metric that internally
+        # mixes an incompatible basis: a cumulative fiscal figure together with
+        # a POINT_IN_TIME snapshot, or two distinct fiscal conventions (FY vs
+        # TTM) for the same metric.
+        by_metric: Dict[str, set] = {}
         for record in records:
-            if record.period_basis:
-                bases.add(record.period_basis)
-        # Separate period bases from the "RAW" price basis
-        non_raw = {b for b in bases if b != "RAW"}
-        if len(non_raw) > 1:
-            errors.append(f"period_basis_mismatch:{','.join(sorted(non_raw))}")
+            metric = getattr(record, "metric", None)
+            cls = _period_class(getattr(record, "period_basis", None))
+            if not metric or cls is None:
+                continue
+            by_metric.setdefault(metric, set()).add(cls)
+        for metric, classes in by_metric.items():
+            fiscal = {c for c in classes if c not in _NON_FISCAL_PERIOD_BASES}
+            non_fiscal = classes & _NON_FISCAL_PERIOD_BASES
+            if fiscal and non_fiscal:
+                errors.append(f"period_basis_mismatch:{metric}:{','.join(sorted(classes))}")
+            elif len(fiscal) > 1:
+                errors.append(f"period_basis_mismatch:{metric}:{','.join(sorted(fiscal))}")
 
     @staticmethod
     def _check_market_cap_consistency(
