@@ -128,6 +128,7 @@ class FinancialValidator:
         self._check_unit_consistency(records, errors, warnings)
         self._check_currency_consistency(records, errors, warnings)
         self._check_period_consistency(records, errors, warnings)
+        self._check_scope_consistency(records, errors)
         self._check_market_cap_consistency(records, recalculated, errors, tolerance)
         self._check_negative_denominators(records, errors)
         self._check_peer_count(records, warnings)
@@ -216,6 +217,18 @@ class FinancialValidator:
                 errors.append(f"period_basis_mismatch:{metric}:{','.join(sorted(classes))}")
             elif len(fiscal) > 1:
                 errors.append(f"period_basis_mismatch:{metric}:{','.join(sorted(fiscal))}")
+
+    @staticmethod
+    def _check_scope_consistency(records: List[EvidenceRecord], errors: List[str]) -> None:
+        """A calculation cannot silently bridge parent and consolidated facts."""
+        by_id = {record.evidence_id: record for record in records}
+        for record in records:
+            if record.kind != "calculation":
+                continue
+            inputs = [by_id[input_id] for input_id in record.input_ids if input_id in by_id]
+            scopes = {item.scope for item in inputs}
+            if len(scopes) != 1 or record.scope not in scopes:
+                errors.append(f"scope_mismatch:{record.evidence_id}")
 
     @staticmethod
     def _check_market_cap_consistency(

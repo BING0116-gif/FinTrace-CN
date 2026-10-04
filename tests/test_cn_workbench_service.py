@@ -357,3 +357,133 @@ def test_agent_ablation_artifact_keeps_measured_operational_metrics(tmp_path, mo
     assert detail["kind"] == "ablation"
     assert detail["variants"][0]["validator_intercept_rate"] == 1.0
     assert detail["missing_variants"] == ["direct_llm", "agent_tools", "agent_tools_evidence"]
+
+
+def test_card15_service_reads_persisted_innovation_artifacts_and_replay(tmp_path):
+    run_dir = tmp_path / "run-card15"
+    run_dir.mkdir()
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "run-card15"}), encoding="utf-8")
+    (run_dir / "events.jsonl").write_text(json.dumps({
+        "run_id": "run-card15", "ts": "2026-10-03T00:00:00Z", "stage": "validation",
+        "event_type": "acme", "status": "blocked", "detail": {"reason": "fixture"},
+    }) + "\n", encoding="utf-8")
+    (run_dir / "acme.json").write_text(json.dumps({"status": "blocked", "violations": ["v1"]}), encoding="utf-8")
+    (run_dir / "finfuzz.json").write_text(json.dumps({"suite_id": "measured-fixture", "overall": {}}), encoding="utf-8")
+
+    result = service.card15_demo_data("600519.SH_illustrative_demo_v1", run_id="run-card15", runs_root=tmp_path)
+
+    selected = result["selected_run"]
+    assert selected["timeline"]["events"][0]["status"] == "blocked"
+    assert selected["artifacts"]["acme"]["data"]["violations"] == ["v1"]
+    assert selected["artifacts"]["finfuzz"]["data"]["suite_id"] == "measured-fixture"
+    assert selected["artifacts"]["claim_passport"] is None
+
+
+def test_card15_service_does_not_create_missing_runs_or_benchmark_values(tmp_path):
+    result = service.card15_demo_data("600519.SH_illustrative_demo_v1", runs_root=tmp_path)
+
+    assert result["runs"] == []
+    assert result["selected_run"] is None
+    assert "finfuzz" not in result["pages"]
+    assert result["provenance"]["snapshot_id"] == "600519.SH_illustrative_demo_v1"
+    assert result["provenance"]["fetched_at"]
+    assert result["provenance"]["synthetic_demo"] is True
+
+
+def test_card15_run_resolution_rejects_paths_outside_runs_root(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "manifest.json").write_text("{}", encoding="utf-8")
+
+    try:
+        service.demo_run_detail("../outside", runs_root=tmp_path / "runs")
+    except KeyError as exc:
+        assert "outside" in str(exc)
+    else:
+        raise AssertionError("path traversal must not resolve to a demo run")
+
+
+def test_card15_export_keeps_source_run_intact_and_returns_download_bytes(tmp_path):
+    runs_root = tmp_path / "runs"
+    output_dir = tmp_path / "exports"
+    run_dir = runs_root / "run-export"
+    run_dir.mkdir(parents=True)
+    for name in ("report.md", "report.json", "financials.xlsx", "valuation.xlsx", "corrections.xlsx",
+                 "claims.json", "evidence.json", "calculations.json", "validation.json"):
+        (run_dir / name).write_bytes(b"{}")
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "run-export"}), encoding="utf-8")
+    (run_dir / "events.jsonl").write_text(json.dumps({"run_id": "run-export"}) + "\n", encoding="utf-8")
+    (run_dir / "charts").mkdir()
+    (run_dir / "citations").mkdir()
+
+    result = service.export_demo_evidence_pack("run-export", runs_root=runs_root, output_dir=output_dir)
+
+    assert result["filename"] == "run-export.zip"
+    assert result["content"]
+    assert run_dir.is_dir()
+    assert (output_dir / "run-export.zip").is_file()
+
+
+def test_card15_document_ingest_returns_page_fragments_and_unpromoted_candidates(tmp_path, monkeypatch):
+    monkeypatch.setattr(service, "DOCUMENT_UPLOAD_DIR", tmp_path)
+    monkeypatch.setattr(service, "DOCUMENT_SERVICE", service.DocumentService())
+
+    result = service.ingest_demo_document(
+        "营业收入：12.5 亿元\f归母净利润：3.1 亿元".encode("utf-8"),
+        "draft.txt", symbol="600519.SH", fiscal_period="2025FY",
+        published_at="2026-04-01T00:00:00+08:00",
+    )
+
+    assert result["document"]["document_id"].startswith("doc_")
+    assert len(result["fragments"]) == 2
+    assert {fact["metric"] for fact in result["facts"]} == {"revenue", "net_profit"}
+    assert result["candidate_evidence_count"] == 2
+    assert result["acme_report"]["document_id"] == result["document"]["document_id"]
+    assert result["acme_report"]["review_queue"] == []
+    assert "path" not in result["document"]
+
+
+def test_card15_readiness_reports_missing_assets_without_inventing_a_run(tmp_path):
+    result = service.card15_readiness(runs_root=tmp_path / "runs", asset_root=tmp_path)
+
+    assert result["status"] == "missing_assets"
+    assert result["checks"]["annual_report_pdf"]["status"] == "missing"
+    assert result["checks"]["research_draft"]["status"] == "missing"
+    assert result["checks"]["run_manifest"]["status"] == "missing"
+
+
+def test_card15_readiness_rejects_invalid_asset_root_without_exposing_path(tmp_path):
+    result = service.card15_readiness(asset_root=tmp_path / "not-created")
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "invalid_asset_root"
+    assert str(tmp_path) not in json.dumps(result, ensure_ascii=False)
+
+
+def test_card15_readiness_marks_incomplete_run_partial_and_keeps_artifacts_truthful(tmp_path, monkeypatch):
+    asset_root = tmp_path / "project"
+    (asset_root / "data").mkdir(parents=True)
+    (asset_root / "output").mkdir()
+    (asset_root / "data" / "annual_report.pdf").write_bytes(b"pdf-placeholder")
+    (asset_root / "output" / "research_draft.md").write_text("draft", encoding="utf-8")
+    runs_root = asset_root / "runs"
+    run_dir = runs_root / "run-incomplete"
+    run_dir.mkdir(parents=True)
+    (run_dir / "manifest.json").write_text(json.dumps({"run_id": "run-incomplete", "snapshot_id": "snapshot-real"}), encoding="utf-8")
+    (run_dir / "events.jsonl").write_text(json.dumps({"run_id": "run-incomplete"}) + "\n", encoding="utf-8")
+    monkeypatch.setattr(service, "load_snapshot", lambda _snapshot_id: {"source_metadata": {"synthetic_demo": False}})
+
+    result = service.card15_readiness(snapshot_id="snapshot-real", run_id="run-incomplete", runs_root=runs_root, asset_root=asset_root)
+
+    assert result["status"] in {"partial", "blocked"}
+    assert result["checks"]["annual_report_pdf"]["status"] == "pass"
+    assert result["checks"]["research_draft"]["status"] == "pass"
+    assert result["checks"]["run_manifest"]["status"] == "partial"
+    assert result["checks"]["innovation_artifacts"]["status"] == "partial"
+
+
+def test_card15_readiness_rejects_run_path_traversal(tmp_path):
+    result = service.card15_readiness(run_id="../outside", runs_root=tmp_path / "runs", asset_root=tmp_path)
+
+    assert result["status"] == "blocked"
+    assert result["reason"] == "invalid_run_id"

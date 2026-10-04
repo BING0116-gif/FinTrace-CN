@@ -24,6 +24,7 @@ from src.cn import agent_service
 from src.cn import workbench_service as service
 from src.cn.demo_data import BLOCKED_DEMO_SNAPSHOT_ID, DEMO_SNAPSHOT_ID
 from src.cn.daily_review.report import render_report_html
+from src.cn.workbench_demo import render_demo_pages
 
 # Streamlit can keep imported modules alive across script reruns.  Reload the
 # local service module so a changed UI cannot call a stale service contract.
@@ -36,6 +37,7 @@ REQUIRED_SERVICE_FUNCTIONS = (
     "research_overview_insights", "research_valuation", "list_evaluations", "evaluation_detail",
     "list_daily_reviews", "daily_review_summary", "daily_review_detail",
     "start_daily_review", "acquire_live_daily_review",
+    "card15_demo_data", "list_demo_runs", "demo_run_detail", "export_demo_evidence_pack", "ingest_demo_document",
 )
 REQUIRED_AGENT_FUNCTIONS = ("start_agent_research", "get_agent_task", "agent_task_events")
 
@@ -53,7 +55,7 @@ def service_contract_ready() -> bool:
 
 ROOT = Path(__file__).resolve().parent
 
-NAVIGATION = ["案例演示", "AI Agent 研究", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
+NAVIGATION = ["案例演示", "CARD-15 Demo", "AI Agent 研究", "研究总览", "市场与行情", "财务表现", "同行估值", "证据与校验", "Agent 执行轨迹", "研究报告", "研究任务", "评测与消融", "每日复盘"]
 
 DEMO_CASES = {
     "成功研究：贵州茅台": {
@@ -1695,10 +1697,27 @@ def main() -> None:
     if page == "AI Agent 研究":
         agent_research()
         return
+    snapshot, metadata = load_research(choices[selected_label])
+    if page == "CARD-15 Demo":
+        run_ids = [item["run_id"] for item in service.list_demo_runs()]
+        run_options = ["（未选择）", *run_ids]
+        if st.session_state.get("card15_replay_run") not in run_options:
+            st.session_state["card15_replay_run"] = "（未选择）"
+        selected_run_id = st.sidebar.selectbox(
+            "Audit Replay Run",
+            run_options,
+            key="card15_replay_run",
+            disabled=not run_ids,
+        )
+        render_demo_pages(service_data=service.card15_demo_data(
+            choices[selected_label],
+            run_id=None if selected_run_id == "（未选择）" else selected_run_id,
+        ), export_pack=service.export_demo_evidence_pack,
+        ingest_document=service.ingest_demo_document)
+        return
     if page == "每日复盘":
         daily_review()
         return
-    snapshot, metadata = load_research(choices[selected_label])
     header(snapshot, metadata)
     {"研究总览": lambda: overview(snapshot, metadata), "市场与行情": lambda: market(snapshot), "财务表现": lambda: financials(snapshot), "同行估值": lambda: valuation_safe(snapshot, metadata), "证据与校验": lambda: evidence(snapshot, metadata), "Agent 执行轨迹": lambda: trace(snapshot), "研究报告": lambda: report(snapshot), "研究任务": tasks, "评测与消融": evaluations}[page]()
 

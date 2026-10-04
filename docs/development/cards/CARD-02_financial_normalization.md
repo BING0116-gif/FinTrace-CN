@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2/5 的数据基础（全主链） |
 | 依赖 | CARD-01（ExtractedFact 输入）、**现有** `src/cn/periods.py`（FinancialPeriodEngine）、**现有** `src/cn/evidence.py`（Evidence Ledger 扩展）、**现有** `src/cn/domain.py`（FinancialStatement） |
 | 实现复杂度 | 中高（约 4–5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ MVP 已完成；完整卡片仍进行中 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标

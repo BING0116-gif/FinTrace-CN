@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题4 重要金融工具（初赛版） |
 | 依赖 | CARD-02（规范化财务）、CARD-07（计算记录） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -123,13 +123,13 @@ Calculation Accuracy（估值数值精确匹配）接入 CARD-11。
 
 ## 15. 验收标准
 
-- [ ] 敏感性矩阵手工算例 + 单调性测试通过
-- [ ] 全部假设入 Registry 且可追溯（数据→公式→假设→输出链路测试）
-- [ ] 方法分别展示 + dispersion 报告（无合成区间）
-- [ ] 全部测试离线通过
+- [x] 敏感性矩阵手工算例 + 单调性测试通过
+- [x] 全部假设入 Registry 且可追溯（数据→公式→假设→输出链路测试）
+- [x] 方法分别展示 + dispersion 报告（无合成区间）
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-01 | 扩展 valuation.py：Assumption Registry、Bear/Base/Bull PE/PB/PS、EPS×PE 与 BPS×PB 敏感性矩阵、方法独立 dispersion、负分母 fail-closed；新增 RunCnRelativeValuationTool 与离线测试。 |

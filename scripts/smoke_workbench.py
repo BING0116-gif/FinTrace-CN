@@ -23,6 +23,7 @@ WORKBENCH = str(ROOT / "workbench.py")
 # Must stay in sync with NAVIGATION in workbench.py
 PAGES = [
     "案例演示",
+    "CARD-15 Demo",
     "AI Agent 研究",
     "研究总览",
     "市场与行情",

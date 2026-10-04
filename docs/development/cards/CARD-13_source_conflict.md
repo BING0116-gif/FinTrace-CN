@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2/5（重述与更正场景）；数据准确性；**并作为 ACME 跨源约束与 Temporal Revalidation 的裁决层** |
 | 依赖 | CARD-01（多文档）、CARD-04（重述信号）、CARD-22（ACME 跨源结果四分类） |
 | 实现复杂度 | 低中（约 2.5 人日，含三态区分与四分类接入） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -119,4 +119,4 @@ Scope/Version 准确性间接覆盖；本卡无独立指标，由失败注入 #5
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-02 | 新增 `src/cn/conflict.py`：四级来源优先级、DATA_CONFLICT / VERSION_SUPERSESSION / NEW_INFORMATION 三态裁决、同级冲突阻断、舍入容差与不可变 ConflictRecord；补齐离线测试。 |

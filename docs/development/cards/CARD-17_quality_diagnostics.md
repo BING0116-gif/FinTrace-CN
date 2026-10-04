@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题7 研究报告质量评估 |
 | 依赖 | CARD-05（findings）、09（图）、12（回放） |
 | 实现复杂度 | 中（约 3 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-agent-evaluation |
 
 ## 1. 目标
@@ -36,4 +36,4 @@ Evidence Coverage（证据覆盖率）、Citation Precision、Citation Recall、
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/quality.py` 与离线测试：十个独立诊断维度、N/A 和 claim 明细；明确禁止未经校准的加权总分。 |

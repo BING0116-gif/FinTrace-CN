@@ -22,6 +22,7 @@ from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 
 from src.agents.tools.base import ToolRegistry
 from src.agents.tools.cn_tools import build_cn_snapshot_tools
+from src.agents.prompts import render as render_prompt, record_usage as record_prompt_usage, prompt_hash as registered_prompt_hash
 from src.cn.providers.snapshot import SnapshotProvider
 from src.cn.research import ResearchState
 from src.validation.research_gate import (
@@ -32,13 +33,8 @@ from src.validation.research_gate import (
 )
 
 
-SYSTEM_PROMPT = """You are an offline A-share research agent.
-Use only the supplied tools. Snapshot data is historical, not live. Resolve an
-A-share symbol before fetching its data, even when the query already contains a
-canonical ticker. Preserve evidence IDs, and never invent financial figures.
-For a point-in-time request, use the supplied complete ISO-8601 cutoff. Use the
-minimum necessary tools; do not create a research plan unless the user asks for
-one. If a tool errors, stop rather than retrying with guessed payloads."""
+SYSTEM_PROMPT = render_prompt("cn_research_agent_system")
+SYSTEM_PROMPT_HASH = registered_prompt_hash("cn_research_agent_system")
 
 
 class ToolCallingProvider(Protocol):
@@ -70,6 +66,7 @@ class CnResearchAgent:
                  requested_valuation_method: Optional[str] = None) -> None:
         self.snapshot_path = Path(snapshot_path)
         self.snapshot = SnapshotProvider(self.snapshot_path)
+        record_prompt_usage("cn_research_agent_system", model_name, temperature)
         self.model_name = model_name
         self.temperature = temperature
         self.max_steps = max_steps

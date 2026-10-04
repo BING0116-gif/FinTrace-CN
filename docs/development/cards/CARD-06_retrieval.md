@@ -7,7 +7,7 @@
 | 对应赛题 | 竞赛任务链第一环"信息检索"；赛题6 引用素材 |
 | 依赖 | CARD-01（文档 chunk 来源） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -113,14 +113,14 @@ CARD-01 文档 → 索引 → 检索 → CARD-10 备忘录引用 → ledger 只�
 
 ## 15. 验收标准
 
-- [ ] BM25 自研实现 + 手工算例通过 + 确定性测试通过
-- [ ] chunk/evidence 分离机制有测试（检索不污染账本）
-- [ ] 引用三型校验全部有测试
-- [ ] 未配置 embedding 时自动降级且如实标注
-- [ ] 全部测试离线通过
+- [x] BM25 自研实现 + 手工算例通过 + 确定性测试通过
+- [x] chunk/evidence 分离机制有测试（检索不污染账本）
+- [x] 引用三型校验全部有测试
+- [x] 未配置 embedding 时自动降级且如实标注
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-01 | 完成自研确定性 BM25、SearchHit/CorpusChunk 模型、quote/paraphrase/inference 引用校验、延迟证据登记、HybridRetriever 的显式 BM25 降级及 SearchCnCorpusTool；离线测试通过。 |

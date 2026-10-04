@@ -7,7 +7,7 @@
 | 对应赛题 | 竞赛硬性要求："完整记录文件访问、工具调用、计算过程和结果生成情况" |
 | 依赖 | 无 |
 | 实现复杂度 | 中（约 3 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -113,14 +113,14 @@ Demo 结尾展示：任选一次 run → 导出 manifest → 现场重放 → �
 
 ## 15. 验收标准
 
-- [ ] 17 字段 manifest 生成与测试
-- [ ] 九类 stage 事件全覆盖（file_load 到 report）
-- [ ] replay 确定性层全等验证通过
-- [ ] 事件只追加（防篡改测试）
-- [ ] 全部测试离线通过
+- [x] 17 字段 manifest 生成与测试
+- [x] 九类 stage 事件全覆盖（file_load 到 report）
+- [x] replay 确定性层全等验证通过
+- [x] 事件只追加（防篡改测试）
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-01 | 完成 17 字段 RunManifest、append-only events.jsonl、输入文件 SHA-256 校验、事件哈希链、9 类 stage、interrupted/tamper/replay preflight；离线测试通过。 |

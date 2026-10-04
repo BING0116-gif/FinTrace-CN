@@ -5,10 +5,11 @@ Run: .venv/Scripts/uvicorn api:app --reload
 
 from __future__ import annotations
 
+from io import BytesIO
 from typing import Any, Callable, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -17,10 +18,14 @@ from src.cn import workbench_service as service
 from src.cn import agent_service as agentservice
 from src.cn.agent_service import AgentResearchError
 from src.cn.errors import UnsupportedSymbolError
+from src.cn.documents import DocumentService
+from src.cn.documents.parser import DocumentParseError
+from src.cn.documents.registry import DocumentRegistrationError
 
 
 API_SCHEMA_VERSION = "workbench-api-1.0.0"
 app = FastAPI(title="FinTrace-CN Workbench API", version="1.0.0")
+document_service = DocumentService()
 
 
 class ResearchRequest(BaseModel):
@@ -41,6 +46,14 @@ class AgentResearchRequest(BaseModel):
 class SnapshotAcquisitionRequest(ResearchRequest):
     start_date: str = Field(pattern=r"^\d{8}$", description="Inclusive YYYYMMDD date.")
     end_date: str = Field(pattern=r"^\d{8}$", description="Inclusive YYYYMMDD date.")
+
+
+class DocumentRegisterRequest(BaseModel):
+    path: str = Field(min_length=1, description="Local PDF/TXT/Markdown path for the local workbench.")
+    document_type: str | None = Field(default=None, min_length=1)
+    symbol: str | None = Field(default=None, min_length=1)
+    fiscal_period: str | None = Field(default=None, min_length=1)
+    published_at: str | None = Field(default=None, min_length=1)
 
 
 class ApiError(BaseModel):
@@ -74,6 +87,70 @@ class ApiEnvelope(BaseModel):
 def health() -> dict[str, str]:
     """Unauthenticated liveness probe; never reads providers or credentials."""
     return {"status": "ok", "schema_version": API_SCHEMA_VERSION}
+
+
+@app.post("/api/documents/register")
+def register_document(request: DocumentRegisterRequest) -> dict[str, Any]:
+    try:
+        record = document_service.register(**request.model_dump(exclude_none=True))
+    except DocumentRegistrationError as exc:
+        return _error("DOCUMENT_REGISTRATION_FAILED", str(exc), status_code=400)
+    return _ok(record.to_dict(), meta={"provider": "local_document_registry"})
+
+
+@app.post("/api/documents/{document_id}/parse")
+def parse_document(document_id: str) -> dict[str, Any]:
+    try:
+        result = document_service.parse(document_id)
+    except KeyError:
+        return _error("DOCUMENT_NOT_FOUND", "Unknown document_id.", status_code=404)
+    except ValueError:
+        return _error("DOCUMENT_CONTENT_CHANGED", "The document changed after registration; register it again.", status_code=409)
+    except DocumentParseError as exc:
+        return _error("DOCUMENT_PARSE_FAILED", str(exc), status_code=422)
+    return _ok(result.to_dict(), meta={
+        "provider": f"document:{document_id}",
+        "data_coverage": {"pages": result.document.page_count, "facts": len(result.facts)},
+        "freshness": result.document.published_at,
+        "validation_status": result.document.status,
+    })
+
+
+@app.get("/api/documents/{document_id}")
+def get_document(document_id: str) -> dict[str, Any]:
+    try:
+        record = document_service.get_record(document_id)
+    except KeyError:
+        return _error("DOCUMENT_NOT_FOUND", "Unknown document_id.", status_code=404)
+    return _ok(record.to_dict(), meta={"provider": "local_document_registry"})
+
+
+@app.get("/api/documents/{document_id}/fragments")
+def document_fragments(document_id: str) -> dict[str, Any]:
+    try:
+        result = document_service.get_result(document_id)
+    except KeyError:
+        return _error("DOCUMENT_NOT_PARSED", "Parse the document before reading fragments.", status_code=404)
+    return _ok([fragment.to_dict() for fragment in result.fragments], meta={"provider": f"document:{document_id}"})
+
+
+@app.get("/api/documents/{document_id}/facts")
+def document_facts(document_id: str) -> dict[str, Any]:
+    try:
+        result = document_service.get_result(document_id)
+    except KeyError:
+        return _error("DOCUMENT_NOT_PARSED", "Parse the document before reading facts.", status_code=404)
+    return _ok([fact.to_dict() for fact in result.facts], meta={"provider": f"document:{document_id}"})
+
+
+@app.get("/api/documents/{document_id}/artifacts")
+def document_artifacts(document_id: str) -> dict[str, Any]:
+    try:
+        result = document_service.get_result(document_id)
+    except KeyError:
+        return _error("DOCUMENT_NOT_PARSED", "Parse the document before reading artifacts.", status_code=404)
+    return _ok({"document": result.document.to_dict(), "fragments": len(result.fragments), "facts": len(result.facts)},
+               meta={"provider": f"document:{document_id}"})
 
 
 def _meta(**overrides: Any) -> dict[str, Any]:
@@ -158,6 +235,47 @@ def _task_result(data: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/research")
 def list_research() -> ApiEnvelope:
     return _ok({"items": service.list_research()})
+
+
+@app.get("/api/demo/runs")
+def list_demo_runs() -> ApiEnvelope:
+    """List persisted CARD-15 runs without exposing server filesystem paths."""
+    return _ok({"items": service.list_demo_runs()})
+
+
+@app.get("/api/demo/readiness")
+def demo_readiness(snapshot_id: str | None = Query(default=None), run_id: str | None = Query(default=None)) -> ApiEnvelope:
+    """Report CARD-15 real-material readiness without exposing local paths."""
+    return _ok(service.card15_readiness(snapshot_id=snapshot_id, run_id=run_id))
+
+
+@app.get("/api/demo/runs/{run_id}")
+def demo_run_detail(run_id: str) -> ApiEnvelope:
+    try:
+        return _ok(service.demo_run_detail(run_id))
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail={
+            "code": "DEMO_RUN_NOT_FOUND", "message": "Demo run was not found.",
+        }) from exc
+
+
+@app.post("/api/demo/runs/{run_id}/export")
+def export_demo_run(run_id: str) -> StreamingResponse:
+    try:
+        result = service.export_demo_evidence_pack(run_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail={
+            "code": "DEMO_RUN_NOT_FOUND", "message": "Demo run was not found.",
+        }) from exc
+    except (OSError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail={
+            "code": "DEMO_PACK_EXPORT_FAILED", "message": str(exc),
+        }) from exc
+    return StreamingResponse(
+        BytesIO(result["content"]),
+        media_type=result.get("media_type", "application/zip"),
+        headers={"Content-Disposition": f'attachment; filename="{result["filename"]}"'},
+    )
 
 
 @app.get("/api/evaluations")

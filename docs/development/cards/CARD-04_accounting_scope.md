@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2（会计口径变化识别）/ 赛题5（scope_error） |
 | 依赖 | CARD-01（文档解析）、CARD-02（version 标注） |
 | 实现复杂度 | 中（约 3 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -105,13 +105,14 @@ Scope Accuracy 指标接入 CARD-11（合成集 planted 信号识别率）。
 
 ## 15. 验收标准
 
-- [ ] 6 类信号检测各有测试用例
-- [ ] 三种决策路径（block/use_adjusted/warning）全部有测试
-- [ ] 信号 100% 绑定 Evidence
-- [ ] 全部测试离线通过
+- [x] 6 类信号检测各有测试用例
+- [x] 三种决策路径（block/use_adjusted/warning）全部有测试
+- [x] 信号 100% 绑定 Evidence
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-01 | 完成 scope/version 元数据贯通；归母/扣非/少数股东损益及母公司/合并净资产候选事实区分；证据计算混合 scope 阻断；新增确定性 scope signal 检测、可比性决策和 DetectCnScopeSignalsTool；离线测试通过。 |
+| 2026-10-02 | 修正同页混合口径候选事实的局部 scope 推断，补齐六类信号与三类决策路径测试；离线基线 391 passed。 |

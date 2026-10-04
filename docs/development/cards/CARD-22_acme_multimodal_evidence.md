@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：赛题2/5（创新一）；华北五省：Constraint Reasoning / Multimodal Understanding |
 | 依赖 | CARD-01（文档解析）、CARD-02（规范化/期间键）、CARD-13（cross-source 裁决）、现有 `src/cn/domain.py`（FinancialStatement） |
 | 实现复杂度 | 高（约 6 人日：基础约束 3 + 跨源 1.5 + 跨模态 1.5） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成（离线基础版） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Accounting Integrity Validator (ACEE)"。v3.2 按最终创新体系升级为 ACME：在会计完整性约束之上，增加 **Table Structural / Period / Cross-period / Cross-source / Cross-modal** 六类约束族，成为"解析→约束验证→异常定位→降级/重新解析/人工复核"的完整质量控制层。
@@ -224,4 +224,4 @@ Demo 步骤 4b（见 DEMO_FLOW.md）：上传真实年报 → 展示一个约束
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/acme/` 确定性校验层和 `tests/test_cn_acme.py`：统一 ConstraintViolation/CrossModalInconsistency/IntegrityReport 合约；实现 F1–F6 检测、绝对/相对容差、复核队列和不自动修值策略；`ValidateCnAcmeTool` 提供注册文档入口。期间关系调用现有 `FinancialPeriodEngine`。真实 PDF/OCR、多页表适配、跨源 CARD-13 裁决编排及真实 benchmark 仍未完成。 |

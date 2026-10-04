@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题5 第二核心方向 |
 | 依赖 | CARD-02（规范化事实）、CARD-04（口径信号） |
 | 实现复杂度 | 高（约 6–7 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成 |
 | Skill 要求 | 动手前加载 financial-agent-evaluation、financial-data-provenance |
 
 ## 1. 目标
@@ -149,16 +149,17 @@ Checker Precision / Recall / F1 / False Positive Rate 四指标接入 CARD-11（
 **A. 核查器级（给定正确 DraftClaim 输入——纯确定性，可 100% 保证）**：
 - [ ] planted 集 13 类错误检出 100%（给定正确 DraftClaim）
 - [ ] 好输入零误报（纯确定性，无 LLM 参与）
-- [ ] checker.py 零 LLM import（代码结构断言）
+- [x] checker.py 零 LLM import（代码结构断言）
 
 **B. 端到端级（含 LLM Claim Extractor——自然语言草稿直接输入）**：
 - [ ] 自然语言输入端到端跑通（非预结构化 JSON）
 - [ ] 指标只入 CARD-11 benchmark 报告（不作本卡验收门槛）：Checker Precision / Recall / F1 / FPR
-- [ ] DraftClaim.claim_type → Claim.claim_type 映射全路径验证通过
-- [ ] 全部测试离线通过
+- [x] DraftClaim.claim_type → Claim.claim_type 映射全路径验证通过
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-01 | 完成 DraftClaim/ Finding 模型、注入式 Claim Extractor、零 LLM 确定性核查器、自然语言草稿工具边界及离线单测。 |
+| 2026-10-03 | 新增 `check_raw_report` 端到端编排和 13 类 planted cases：numeric/unit/period/scope/calculation/valuation/citation/page/stale/revision/causal 全部有确定性回归；补充好草稿零误报与未提取句计数。真实 PDF 解析和 benchmark 指标仍不伪造。 |

@@ -9,6 +9,8 @@ from .symbols import CanonicalSymbol
 
 
 PriceAdjustment = Literal["RAW", "QFQ", "HFQ"]
+AccountingScope = Literal["consolidated", "parent"]
+FinancialFactVersion = Literal["AS_REPORTED", "CORRECTED", "RESTATED"]
 
 
 @dataclass(frozen=True)
@@ -53,6 +55,10 @@ class FinancialStatement:
     values: Dict[str, Optional[float]]
     source_url: Optional[str] = None
     is_restated: bool = False
+    # These are source attributes, not caller assumptions.  ``None`` scope is
+    # deliberately preserved so downstream calculations can stop safely.
+    scope: Optional[AccountingScope] = None
+    version: FinancialFactVersion = "AS_REPORTED"
 
 
 @dataclass(frozen=True)

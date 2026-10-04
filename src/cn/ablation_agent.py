@@ -21,6 +21,7 @@ from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
 from src.agents.tools.base import ToolRegistry
 from src.agents.tools.cn_tools import build_cn_snapshot_tools
+from src.agents.prompts import render as render_prompt
 from src.cn.benchmark import METRIC_KEYS
 from src.cn.evidence import EvidenceLedger
 from src.cn.providers.snapshot import SnapshotProvider
@@ -34,16 +35,7 @@ ABLATION_VARIANTS = (
     "agent_tools_evidence_validator",
 )
 
-SYSTEM_PROMPT = """You are an offline A-share research agent.
-Use only the supplied tools. Snapshot data is historical, not live. Resolve an
-A-share symbol before fetching its data, even when the query already contains a
-canonical ticker. Preserve evidence IDs, and never invent financial figures.
-For a point-in-time request, pass the supplied research cutoff as the complete
-ISO-8601 ``research_as_of`` value (including time and UTC offset). If a tool
-returns an error, do not retry with a guessed payload: stop and explain the
-limitation. Use the minimum necessary tools; do not create a research plan
-unless the user explicitly asks for one. Stop after you have answered the
-user's request."""
+SYSTEM_PROMPT = render_prompt("cn_ablation_system")
 
 
 class ToolCallingProvider(Protocol):

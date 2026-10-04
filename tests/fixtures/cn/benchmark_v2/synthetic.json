@@ -1,0 +1,10 @@
+{
+  "schema_version": "cn-agent-v2-dataset-1.0.0",
+  "split": "synthetic",
+  "offline_fixture": true,
+  "description": "Minimal licensed synthetic cases; no real filings or model scores.",
+  "cases": [
+    {"case_id": "synthetic_scope_001", "input_type": "financial_statement", "expected": {"scope": "consolidated"}, "truth": [{"document_id": "syn-001", "metric": "net_profit_parent", "period": "2025FY", "expected_value": 100.0, "unit": "CNY_mn", "scope": "consolidated", "page": 1}]},
+    {"case_id": "synthetic_checker_001", "input_type": "draft_claim", "expected": {"detect_error": true}, "truth": [{"document_id": "syn-002", "metric": "revenue", "period": "2025FY", "expected_value": 200.0, "unit": "CNY_mn", "scope": "consolidated", "page": 2}]}
+  ]
+}

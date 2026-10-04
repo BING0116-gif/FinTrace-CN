@@ -6,6 +6,8 @@ import json
 import csv
 import inspect
 import time
+import hashlib
+import platform
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Awaitable, Callable, Dict, Iterable, List, Mapping, Optional, Sequence
@@ -20,6 +22,86 @@ ABLATION_VARIANTS = (
     "agent_tools_evidence",
     "agent_tools_evidence_validator",
 )
+
+# CARD-11: the v2 scorecard is deliberately explicit.  A missing denominator
+# is reported as N/A, never converted to a flattering zero or target number.
+V2_METRICS = (
+    "extraction_precision", "extraction_recall", "extraction_f1",
+    "numeric_exact_match", "unit_accuracy", "period_accuracy", "scope_accuracy", "page_attribution_accuracy",
+    "citation_precision", "citation_recall", "calculation_accuracy",
+    "checker_precision", "checker_recall", "checker_f1", "false_positive_rate",
+    "tool_selection_accuracy", "parameter_accuracy", "task_completion_rate", "evidence_coverage",
+    "unsafe_conclusion_leakage", "replay_success_rate", "multi_run_consistency",
+    "latency", "token_cost",
+)
+
+
+def precision_recall_f1(true_positive: int, false_positive: int, false_negative: int) -> dict[str, float | None]:
+    """Return deterministic P/R/F1; undefined denominators stay ``None``."""
+    tp, fp, fn = float(true_positive), float(false_positive), float(false_negative)
+    precision = tp / (tp + fp) if tp + fp else None
+    recall = tp / (tp + fn) if tp + fn else None
+    f1 = 2 * precision * recall / (precision + recall) if precision is not None and recall is not None and precision + recall else None
+    return {"precision": None if precision is None else round(precision, 12), "recall": None if recall is None else round(recall, 12), "f1": None if f1 is None else round(f1, 12)}
+
+
+def _rate(correct: int, total: int) -> float | None:
+    return float(correct) / float(total) if total else None
+
+
+def compute_v2_metrics(observations: Mapping[str, object]) -> dict[str, float | None]:
+    """Compute the 24-card scorecard from captured counts, not model prose.
+
+    ``observations`` accepts either direct metric values or count objects.  The
+    count form is useful for fixtures and makes the denominator auditable.
+    """
+    out: dict[str, float | None] = {key: None for key in V2_METRICS}
+    for key in V2_METRICS:
+        value = observations.get(key)
+        if isinstance(value, (int, float)):
+            out[key] = float(value)
+        elif isinstance(value, Mapping) and "correct" in value:
+            out[key] = _rate(int(value.get("correct", 0)), int(value.get("total", 0)))
+    extraction = observations.get("extraction")
+    if isinstance(extraction, Mapping):
+        prf = precision_recall_f1(int(extraction.get("tp", 0)), int(extraction.get("fp", 0)), int(extraction.get("fn", 0)))
+        out.update({"extraction_precision": prf["precision"], "extraction_recall": prf["recall"], "extraction_f1": prf["f1"]})
+    checker = observations.get("checker")
+    if isinstance(checker, Mapping):
+        prf = precision_recall_f1(int(checker.get("tp", 0)), int(checker.get("fp", 0)), int(checker.get("fn", 0)))
+        out.update({"checker_precision": prf["precision"], "checker_recall": prf["recall"], "checker_f1": prf["f1"]})
+        negatives = int(checker.get("negative_total", 0))
+        out["false_positive_rate"] = _rate(int(checker.get("fp", 0)), negatives)
+    return out
+
+
+def environment_fingerprint(*, suite: str, dataset: str, config: Mapping[str, object] | None = None, code_version: str = "") -> dict[str, str]:
+    """Create a stable, auditable fingerprint for a benchmark invocation."""
+    payload = {"suite": suite, "dataset": dataset, "config": dict(config or {}), "code_version": code_version}
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return {"fingerprint": hashlib.sha256(canonical.encode("utf-8")).hexdigest(), "suite": suite, "dataset": dataset, "code_version": code_version, "python": platform.python_version()}
+
+
+def build_v2_report(*, suite: str = "cn_agent_v2", dataset: str = "synthetic", metrics: Mapping[str, object] | None = None, metadata: Mapping[str, object] | None = None, ablation: Mapping[str, object] | None = None, finfuzz: Mapping[str, object] | None = None) -> dict[str, object]:
+    """Build a report with every scorecard row, including honest N/A values."""
+    measured = compute_v2_metrics(metrics or {})
+    rows = [{"metric": key, "value": measured[key], "status": "measured" if measured[key] is not None else "N/A", "reason": None if measured[key] is not None else "no denominator or captured observation"} for key in V2_METRICS]
+    report: dict[str, object] = {"schema_version": "cn-agent-v2-benchmark-1.0.0", "suite": suite, "dataset": dataset, "metrics": rows, "metadata": dict(metadata or {}), "environment": environment_fingerprint(suite=suite, dataset=dataset, config=metadata or {})}
+    if ablation is not None: report["ablation"] = dict(ablation)
+    if finfuzz is not None:
+        report["finfuzz"] = dict(finfuzz)
+    return report
+
+
+def write_v2_report(output_dir: Path | str, report: Mapping[str, object]) -> dict[str, object]:
+    directory = Path(output_dir); directory.mkdir(parents=True, exist_ok=True)
+    (directory / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    lines = [f"# {report.get('suite', 'cn_agent_v2')} benchmark", "", f"数据集：{report.get('dataset')}", f"环境指纹：{report.get('environment', {}).get('fingerprint')}", "", "| 指标 | 值 | 状态 |", "|---|---:|---|"]
+    for row in report.get("metrics", []):
+        value = "N/A" if row.get("value") is None else f"{float(row['value']):.6f}"
+        lines.append(f"| {row['metric']} | {value} | {row['status']} |")
+    (directory / "report.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return dict(report)
 
 
 @dataclass(frozen=True)
@@ -236,3 +318,46 @@ class BenchmarkRunner:
             writer = csv.DictWriter(handle, fieldnames=fields, extrasaction="ignore")
             writer.writeheader()
             writer.writerows(rows)
+
+
+@dataclass(frozen=True)
+class BenchmarkV2Case:
+    case_id: str
+    split: str
+    input_type: str
+    expected: dict[str, object] = field(default_factory=dict)
+    truth: list[dict[str, object]] = field(default_factory=list)
+
+
+def load_v2_cases(root: Path | str, split: str = "synthetic") -> list[BenchmarkV2Case]:
+    """Load one split and reject accidental real/holdout mixing."""
+    if split not in {"synthetic", "real", "holdout"}:
+        raise ValueError("split must be synthetic, real, or holdout")
+    path = Path(root) / f"{split}.json" if Path(root).is_dir() else Path(root)
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    declared = payload.get("split", split)
+    if declared != split:
+        raise ValueError(f"dataset split mismatch: requested {split}, file declares {declared}")
+    if split != "synthetic" and payload.get("offline_fixture", False):
+        raise ValueError("real/holdout data cannot be marked as an offline fixture")
+    return [BenchmarkV2Case(item["case_id"], split, str(item.get("input_type", "document")), dict(item.get("expected", {})), list(item.get("truth", []))) for item in payload.get("cases", [])]
+
+
+def run_v2_cli(argv: Sequence[str] | None = None) -> int:
+    """Small offline CLI used by ``python -m src.cn.benchmark``."""
+    import argparse
+    parser = argparse.ArgumentParser(description="FinTrace-CN v2 benchmark")
+    parser.add_argument("--suite", default="cn_agent_v2")
+    parser.add_argument("--set", dest="split", default="synthetic", choices=("synthetic", "real", "holdout"))
+    parser.add_argument("--out", default="output/benchmark")
+    parser.add_argument("--dataset-root", default="tests/fixtures/cn/benchmark_v2")
+    args = parser.parse_args(argv)
+    cases = load_v2_cases(args.dataset_root, args.split)
+    report = build_v2_report(suite=args.suite, dataset=args.split, metrics={}, metadata={"case_count": len(cases), "network": False, "status": "fixture inventory only"})
+    write_v2_report(Path(args.out) / args.suite / args.split, report)
+    print(json.dumps({"suite": args.suite, "set": args.split, "cases": len(cases), "report": str(Path(args.out) / args.suite / args.split)}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(run_v2_cli())

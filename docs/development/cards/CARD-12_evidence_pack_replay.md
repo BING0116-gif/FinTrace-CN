@@ -7,7 +7,7 @@
 | 对应赛题 | "来源可核验、执行过程可追溯、运行结果可复现"的最终交付形态 |
 | 依赖 | CARD-07（events/manifest）、CARD-09（图） |
 | 实现复杂度 | 中（约 3–4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -115,4 +115,5 @@ Replay Success Rate 已由 CARD-07 测；本卡验收重放 UI 的呈现完整�
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-02 | 新增 `src/cn/evidence_pack.py`：证据包复制、13 类产物校验、Claim/Evidence 引用校验、损坏 events 容错回放、Markdown 时间线、7 个失败注入场景清单；注册 `ExportCnEvidencePackTool` 并补离线测试。 |
+| 2026-10-03 | 新增 `inject_failure_scenario()` 与 `scripts/run_replay_failure_injection.py`：在独立复制目录中执行 7 场景入口（删除 Evidence/PDF 页等真实变更，其余场景保留显式 marker），源 run 永不修改；补充离线测试。Replay UI 仍待 Workbench 完整服务接线。 |

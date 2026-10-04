@@ -32,6 +32,8 @@ class EvidenceRecord:
     provider: str
     field_path: Optional[str]
     source_url: Optional[str] = None
+    scope: Optional[str] = None
+    version: str = "AS_REPORTED"
     input_ids: Tuple[str, ...] = ()
     operation: Optional[Operation] = None
 
@@ -65,6 +67,8 @@ class EvidenceLedger:
         provider: str,
         field_path: str,
         source_url: Optional[str] = None,
+        scope: Optional[str] = None,
+        version: str = "AS_REPORTED",
     ) -> EvidenceRecord:
         return self._add(
             EvidenceRecord(
@@ -72,6 +76,7 @@ class EvidenceLedger:
                 value=float(value), currency=currency, unit=unit, fiscal_period=fiscal_period,
                 period_basis=period_basis, published_at=published_at, available_at=available_at,
                 provider=provider, field_path=field_path, source_url=source_url,
+                scope=scope, version=version,
             )
         )
 
@@ -88,6 +93,8 @@ class EvidenceLedger:
         input_ids: Iterable[str],
         fiscal_period: Optional[str] = None,
         period_basis: Optional[str] = None,
+        scope: Optional[str] = None,
+        version: Optional[str] = None,
     ) -> EvidenceRecord:
         inputs = tuple(input_ids)
         if len(inputs) < 2:
@@ -95,12 +102,26 @@ class EvidenceLedger:
         for input_id in inputs:
             if input_id not in self._records:
                 raise EvidenceError(f"Calculation input does not exist: {input_id}")
+        input_scopes = {self._records[input_id].scope for input_id in inputs}
+        # Legacy/provider facts can all be scope-unresolved.  That state is
+        # represented explicitly and is not a *mixed* scope; callers may
+        # decide to reject it at a stricter report boundary.
+        if len(input_scopes) != 1:
+            raise EvidenceError("scope_mismatch_in_calculation")
+        resolved_scope = next(iter(input_scopes))
+        # Version is retained on every edge, but a calculation may legitimately
+        # combine a market bar with a financial statement revision.  Scope is
+        # the accounting boundary that must be homogeneous.
+        resolved_version = version or (next(iter({self._records[input_id].version for input_id in inputs})) if len({self._records[input_id].version for input_id in inputs}) == 1 else "MIXED")
+        if scope is not None and scope != resolved_scope:
+            raise EvidenceError("scope_mismatch_in_calculation")
         return self._add(
             EvidenceRecord(
                 evidence_id=evidence_id, kind="calculation", symbol=symbol, metric=metric,
                 value=float(value), currency=currency, unit=unit, fiscal_period=fiscal_period,
                 period_basis=period_basis, published_at=None, available_at=None,
                 provider="fintrace_calculator", field_path=None, input_ids=inputs, operation=operation,
+                scope=resolved_scope, version=resolved_version,
             )
         )
 
@@ -128,7 +149,12 @@ class EvidenceLedger:
         for metric, value in statement.values.items():
             if value is None:
                 continue
-            evidence_id = f"fact_{symbol.replace('.', '_')}_{metric}_{statement.fiscal_period}"
+            # Preserve the long-standing evidence ID for the canonical row;
+            # only a genuine duplicate revision receives a version suffix.
+            base_id = f"fact_{symbol.replace('.', '_')}_{metric}_{statement.fiscal_period}"
+            evidence_id = base_id
+            if evidence_id in self._records:
+                evidence_id = f"{base_id}_{statement.version}"
             created.append(self.add_fact(
                 evidence_id=evidence_id, symbol=symbol, metric=metric, value=value,
                 currency=statement.currency, unit=statement.unit, fiscal_period=statement.fiscal_period,
@@ -136,6 +162,7 @@ class EvidenceLedger:
                 available_at=statement.available_at, provider=provider,
                 field_path=f"statements.{statement.statement_type}.{statement.fiscal_period}.{metric}",
                 source_url=statement.source_url,
+                scope=statement.scope, version=("RESTATED" if statement.is_restated and statement.version == "AS_REPORTED" else statement.version),
             ))
         return created
 

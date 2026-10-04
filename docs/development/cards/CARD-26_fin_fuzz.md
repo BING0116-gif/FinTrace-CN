@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：赛题7 内部评价机制（评测创新）；华北五省：Adversarial Testing |
 | 依赖 | CARD-05（Report Checker）、CARD-09（Claim 结构）、CARD-11（Benchmark 集成） |
 | 实现复杂度 | 中（约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成（离线基础版） |
 | Skill 要求 | 动手前加载 financial-agent-evaluation |
 
 > 本卡前身：v3.1 的 "FinFuzz"。v3.2 明确其定位：**FinFuzz 不是业务核心功能，它是验证 FinTrace 可信能力是否真的有效的测试框架**，必须集成到 Benchmark CARD（CARD-11）。
@@ -192,4 +192,4 @@ Demo 步骤 E2（DEMO_FLOW.md）：FinFuzz 注入一个单位/期间/因果错�
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/finfuzz/`、10 类确定性 mutation operator、seed 可复现 `run_suite`、extractor/checker failure 分层、Overall/per-error-type 指标和 CLI inventory；CARD-11 v2 报告支持挂载 FinFuzz 结果。真实/holdout 数据与全部 Checker 语义联调未伪造。 |

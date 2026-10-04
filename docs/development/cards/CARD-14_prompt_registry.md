@@ -7,7 +7,7 @@
 | 对应赛题 | 竞赛源代码模块清单点名的 "Prompt" |
 | 依赖 | CARD-07（prompt_hash 入 manifest） |
 | 实现复杂度 | 低（约 1.5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 
 ## 1. 目标
 
@@ -89,12 +89,12 @@ Multi-run Consistency 间接覆盖（prompt 版本化是稳定前提）。
 
 ## 15. 验收标准
 
-- [ ] 零硬编码断言通过；golden 零回归
-- [ ] (name, version) 寻址与 hash 入 manifest 打通
-- [ ] Skill 取舍决策有明确记录（做或不做均有理由文档化）
+- [x] 零硬编码断言通过；golden 零回归
+- [x] (name, version) 寻址与 hash 入 manifest 打通
+- [x] Skill 取舍决策有明确记录（做或不做均有理由文档化）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-02 | 新增 `src/agents/prompts/` 版本化注册表、frontmatter 模板、变量 fail-closed 渲染、hash/usage 记录；迁移研究 Agent 与 ablation Agent 系统提示词，并补离线测试。 |

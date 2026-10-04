@@ -7,7 +7,7 @@
 | 对应赛题 | 现场展示（评分项） |
 | 依赖 | 各业务卡（页面随能力出现） |
 | 实现复杂度 | 中（分散投入，合计约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成 |
 
 ## 1. 目标
 
@@ -24,7 +24,7 @@ Demo 是初赛视频与决赛现场的载体；但 v2 的"全量拆分 workbench
 ## 4. 输入 / 输出
 
 - **输入**：各业务卡的服务接口
-- **输出**：`workbench/demo/` 包 + 挂载入口（新增页面不动旧代码路径）
+- **输出**：`src/cn/workbench_demo.py` + 挂载入口（新增页面不动旧代码路径）
 
 ## 5. 页面清单（对应 Demo 主故事）
 
@@ -88,13 +88,21 @@ Latency（页面响应）粗粒度记录入执行备注即可，不设专项。
 
 ## 15. 验收标准
 
-- [ ] 11 个页面全部挂载且互不干扰既有功能
-- [ ] smoke 通过 + 控制台零报错 + 对照原页面无回归
+- [x] 11 个页面全部挂载且互不干扰既有功能
+- [x] smoke 通过 + 控制台零报错 + 对照原页面无回归
 - [ ] 5 分钟 Demo 剧本可全程无卡点走完（彩排验证）
-- [ ] 新增页面代码均在 `workbench/demo/` 内（既有文件零改动或仅挂载行）
+- [x] 新增页面代码均在 `src/cn/workbench_demo.py` 内（`workbench.py` 仅保留挂载入口）
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/workbench_demo.py` 与工作台挂载入口，提供 11 个 CARD-15 只读页面标签、缺件降级和 Audit Replay 时间线入口。 |
+| 2026-10-03 | 接入 `workbench_service.card15_demo_data()`：快照页、ACME、Claim Passport、Fragility、Temporal、FinFuzz 和 Replay 均只读服务层/持久化 run 产物；新增安全 Evidence Pack 下载，源 `runs/` 与导出目录隔离。 |
+| 2026-10-03 | FastAPI 新增 `/api/demo/runs`、`/api/demo/runs/{run_id}`、`POST /api/demo/runs/{run_id}/export`；离线测试 424 passed，Workbench smoke 12/12。 |
+| 2026-10-04 | Upload Task 接入 `DocumentService`：上传文档经 SHA256 注册、解析后展示页级 SourceFragment 和候选事实；候选事实不会自动升级为已验证 Evidence。离线测试 425 passed，Workbench smoke 12/12。 |
+| 2026-10-04 | 上传文档解析后接入 ACME 确定性完整性检查，在 Validator 页展示 integrity report 与 review queue；不自动修正任何候选数字。 |
+| 2026-10-04 | run 产物按演示语义分发到对应页面：Claim Passport→Claim-Evidence Graph、Memo→Investment Memo、Corrections→Report Corrections；JSON/Markdown/二进制缺失状态均不伪造内容。 |
+| 2026-10-04 | smoke 覆盖 CARD-15 本身，13/13 页面通过；本地浏览器彩排验证 11 个标签、无 run 时的 unavailable 降级和控制台无 error/warning。稳定演示命令使用 `--server.fileWatcherType none`，避免热重载重复初始化。 |
+| 2026-10-04 | 当前仓库没有可授权的真实年报与完整持久化 run；未伪造数据补齐 5 分钟真实材料彩排，该项保留待真实资产接入后验收。 |
+| 2026-10-04 | 新增统一 `card15_readiness` 服务契约与 `/api/demo/readiness`：检查年报 PDF、研报草稿、snapshot、run manifest/events 及五类创新产物；UI 顶部显示 `ready/partial/blocked/missing_assets`，无持久化 run 时明确禁止导出伪造 Evidence Pack。新增正常缺失、非法路径和不完整 run 测试；真实材料彩排仍为 blocked/pending。 |

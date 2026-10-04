@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题2 主方向 |
 | 依赖 | CARD-02（NormalizedFact）、CARD-04（可比性信号，可后接） |
 | 实现复杂度 | 中高（约 4–5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ MVP 已完成；完整卡片仍进行中 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标

@@ -183,6 +183,7 @@ class TushareProvider(FinancialDataProvider):
                         unit="CNY",
                         values={key: _value(row, source) for key, source in value_maps[statement_type].items()},
                         is_restated=str(row.get("update_flag") or "") == "1",
+                        scope="consolidated",
                     )
                 key = (statement_type, end_date)
                 previous = statements_by_period.get(key)

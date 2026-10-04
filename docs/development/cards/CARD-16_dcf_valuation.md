@@ -7,7 +7,7 @@
 | 对应赛题 | 赛题4（决赛深度） |
 | 依赖 | CARD-08（估值框架/假设登记）、CARD-02（财务输入） |
 | 实现复杂度 | 中高（约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -64,4 +64,4 @@ Gate 输出适用性判定 + 理由；传统 FCFF DCF 不强行覆盖所有行�
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `valuation_dcf.py`：显式 FCFF 预测、EV→Equity bridge、逐项 Evidence 门禁、WACC×g 敏感性、行业适用性 Gate 与 fail-closed 终值校验；新增离线封闭算例。 |

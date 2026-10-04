@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：赛题2/5 时效性与版本处理（创新三）；华北五省：Incremental Computation |
 | 依赖 | CARD-09（Dependency Graph）、CARD-13（三态区分：CONFLICT/SUPERSESSION/NEW_INFO）、CARD-24（Monitoring Plan 联动） |
 | 实现复杂度 | 中高（约 5 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成（离线基础版） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Temporal Revalidation"。v3.2 升级为 **Temporal Revalidation Engine**：明确 Version Lineage（AS_REPORTED/RESTATED/CORRECTED/SUPERSEDED），区分 DATA CONFLICT / VERSION SUPERSESSION / NEW INFORMATION 三种变化，实现 **Incremental Revalidation（affected-subgraph recomputation）**——新信息进入后，**不得默认全量重新执行所有 LLM workflow**。
@@ -191,4 +191,4 @@ Demo 步骤 11（DEMO_FLOW.md，时间允许时）：导入更正公告 → Temp
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/temporal/` 与 `tests/test_cn_temporal.py`：实现 DATA_CONFLICT / VERSION_SUPERSESSION / NEW_INFORMATION 三态事件、append-only VersionLineage、affected-subgraph BFS、状态传播、impact analysis、full-vs-incremental 一致性合同和 `RevalidateCnClaimsTool`；补充 Run Manifest 事件持久化、valuation/Memo refresh target 与 callback 合同。真实估值重算服务仍由上层环境提供。 |

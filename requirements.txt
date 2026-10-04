@@ -10,3 +10,4 @@ fastapi==0.141.1
 uvicorn==0.52.4
 streamlit==1.61.1
 plotly==6.9.0
+PyMuPDF==1.28.2

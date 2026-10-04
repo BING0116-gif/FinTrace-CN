@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：全链路证据可核验（创新二）；华北五省：Trustworthy AI / Proof-Carrying Computation |
 | 依赖 | CARD-09（Claim-Evidence Graph）、CARD-07（Run Manifest）、CARD-13（版本状态） |
 | 实现复杂度 | 中（约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成（离线基础版） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Financial Proof Object / Verifier (PCIR)"。v3.2 正式命名为 **Financial Claim Passport（对外名称"金融AI结论护照"）**，底层技术对象仍为 Financial Proof Object（FPO），并**新增独立 `verify_claim()` 五态验证接口**——这不是普通 Citation，而是让一个金融 Claim 能够被追溯、重新计算、重新验证、判断是否仍然有效。
@@ -207,4 +207,4 @@ Demo 步骤 7b（DEMO_FLOW.md）：点击一条核心 Claim → 展示 Financial
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/proof/` 与 `tests/test_cn_proof.py`：实现 FinancialProofObject、稳定 proof hash、source/period/scope-unit/calculation/dependency/assumption/validator 检查、五态合并规则和零 LLM `verify_claim()`；新增 `VerifyCnClaimTool`。真实 Run Manifest 持久化、Memo 结论阻断和 CARD-25 版本谱系联动仍待接入。 |

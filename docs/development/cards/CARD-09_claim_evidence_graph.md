@@ -7,7 +7,7 @@
 | 对应赛题 | 全链路的骨架；"事实、推论与观点区分"的直接实现 |
 | 依赖 | CARD-01（证据定位）、CARD-03（计算）、CARD-07（run 关联） |
 | 实现复杂度 | 高（约 5–6 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ☑ 已完成 |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 ## 1. 目标
@@ -170,14 +170,14 @@ Demo 压轴：点击备忘录任一结论 → 图谱逐层展开 → 落到 PDF 
 
 ## 15. 验收标准
 
-- [ ] 图构建/trace/三类检测全部有测试
-- [ ] fact/inference/opinion 绑定规则 validator 强制
-- [ ] 序列化导出与 UI 展开链路打通
-- [ ] 失败注入 #6（删证据→claim blocked）可现场复现
-- [ ] 全部测试离线通过
+- [x] 图构建/trace/三类检测全部有测试
+- [x] fact/inference/opinion 绑定规则 validator 强制
+- [x] 序列化导出与 UI 展开链路打通
+- [x] 失败注入 #6（删证据→claim blocked）可现场复现
+- [x] 全部测试离线通过
 
 ## 16. 执行备注（agent 填写）
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-02 | 完成 Claim/Calculation/Thesis 图模型、trace、孤儿/不支持计算/缺失证据检测、三类绑定校验、环引用拒绝、序列化往返、证据停用与 blocked/stale 传播；新增 TraceCnClaimTool、DeactivateCnEvidenceTool 和离线测试。 |

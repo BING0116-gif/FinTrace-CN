@@ -7,6 +7,7 @@ it never calls a live provider and never manufactures missing peer valuation.
 from __future__ import annotations
 
 import json
+import hashlib
 import math
 from copy import deepcopy
 import subprocess
@@ -21,6 +22,9 @@ from uuid import uuid4
 
 from .domain import FinancialStatement
 from .demo_data import ensure_demo_snapshots
+from .documents import DocumentService
+from .acme import validate_multimodal_evidence
+from .evidence_pack import export_evidence_pack, replay_timeline, validate_evidence_pack
 from .industries import get_industry_code, is_financial_institution
 from .peer_workflow import PeerCandidate, result_to_dict, value_with_peers
 from .periods import FinancialPeriodEngine, supports_period_engine
@@ -36,6 +40,9 @@ SNAPSHOT_DIR = DEFAULT_SNAPSHOT_DIR
 OUTPUT_DIR = PROJECT_ROOT / "output"
 EVALUATION_DIR = OUTPUT_DIR
 TASK_DIR = OUTPUT_DIR / "workbench_tasks"
+RUNS_DIR = PROJECT_ROOT / "runs"
+DOCUMENT_UPLOAD_DIR = OUTPUT_DIR / "workbench_documents"
+DOCUMENT_SERVICE = DocumentService()
 PROBE_SCRIPT = PROJECT_ROOT / "scripts" / "probe_tushare_cn0.py"
 BUILD_SCRIPT = PROJECT_ROOT / "scripts" / "build_cn_snapshot_from_probe.py"
 TASK_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="fintrace-task")
@@ -273,6 +280,278 @@ def evaluation_detail(evaluation_id: str) -> dict[str, Any]:
         "summary": payload.get("summary", {}), "regression": payload.get("regression"),
         "results": payload.get("results", []),
     }
+
+
+CARD15_ARTIFACTS = {
+    "acme": ("acme.json", "integrity.json", "acme_report.json"),
+    "claim_passport": ("claim_passport.json", "passport.json", "proof.json"),
+    "fragility": ("fragility.json", "fragility_report.json"),
+    "temporal": ("temporal.json", "revalidation.json", "revalidation_report.json"),
+    "finfuzz": ("finfuzz.json", "finfuzz_report.json"),
+    "memo": ("memo.json", "memo.md", "report.md"),
+    "corrections": ("corrections.json", "corrections.md", "corrections.xlsx"),
+}
+CARD15_INNOVATION_KEYS = ("acme", "claim_passport", "fragility", "temporal", "finfuzz")
+
+# These are deliberately narrow filename hints.  A generated snapshot report
+# is not accepted as the user's research draft, and no file is copied or
+# uploaded by the readiness check.
+CARD15_DRAFT_HINTS = ("draft", "研报", "research_draft")
+
+
+def _safe_asset_root(asset_root: str | Path) -> Path:
+    """Resolve a local inspection root without returning it to callers."""
+    root = Path(asset_root).resolve()
+    if not root.is_dir():
+        raise ValueError("asset_root must be an existing directory")
+    return root
+
+
+def _find_card15_assets(asset_root: Path) -> dict[str, bool]:
+    """Inspect local files only; never infer authorization or data truth."""
+    search_roots = [root for root in (asset_root / "data", asset_root / "output", asset_root / "runs") if root.is_dir()]
+    annual_report = any(path.suffix.lower() == ".pdf" for root in search_roots for path in root.rglob("*.pdf"))
+    research_draft = any(
+        path.suffix.lower() in {".md", ".txt", ".docx", ".doc"}
+        and any(hint in path.stem.lower() for hint in CARD15_DRAFT_HINTS)
+        for root in search_roots for path in root.rglob("*") if path.is_file()
+    )
+    return {"annual_report_pdf": annual_report, "research_draft": research_draft}
+
+
+def card15_readiness(*, snapshot_id: str | None = None, run_id: str | None = None,
+                     runs_root: str | Path = RUNS_DIR,
+                     asset_root: str | Path = PROJECT_ROOT) -> dict[str, Any]:
+    """Return an auditable readiness contract for the real-material demo.
+
+    Presence is not authorization, and this function never promotes parser
+    candidates or synthetic fixtures to evidence.  Paths are accepted only as
+    inspection inputs and are not returned in the contract.
+    """
+    try:
+        root = _safe_asset_root(asset_root)
+    except ValueError as exc:
+        return {"status": "blocked", "reason": "invalid_asset_root", "checks": {}, "warnings": [str(exc)]}
+    try:
+        runs_path = Path(runs_root).resolve()
+        if not runs_path.is_dir():
+            runs = []
+        else:
+            runs = list_demo_runs(runs_path)
+    except (OSError, ValueError):
+        return {"status": "blocked", "reason": "invalid_runs_root", "checks": {}, "warnings": []}
+
+    asset_checks = _find_card15_assets(root)
+    checks: dict[str, Any] = {
+        key: {"status": "pass" if present else "missing", "detail": "本地文件存在" if present else "未发现可用文件"}
+        for key, present in asset_checks.items()
+    }
+    checks["snapshot"] = {"status": "missing", "detail": "未提供 snapshot_id 或 run manifest 未声明 snapshot"}
+    checks["run_manifest"] = {"status": "missing", "detail": "未发现完整持久化 run"}
+    checks["innovation_artifacts"] = {"status": "missing", "detail": "未发现 ACME/Claim Passport/Fragility/Temporal/FinFuzz 完整产物"}
+
+    selected = None
+    if run_id:
+        try:
+            selected = demo_run_detail(run_id, runs_root=runs_path)
+        except KeyError:
+            return {"status": "blocked", "reason": "invalid_run_id", "checks": checks, "warnings": ["run_id 不存在或不在 runs_root 内"]}
+    elif len(runs) == 1:
+        try:
+            selected = demo_run_detail(runs[0]["run_id"], runs_root=runs_path)
+        except KeyError:
+            selected = None
+
+    manifest_snapshot = None
+    if selected:
+        validation = selected.get("validation") or {}
+        checks["run_manifest"] = {
+            "status": "pass" if validation.get("complete") else "partial",
+            "detail": "run manifest/events/基础 Evidence Pack 通过校验" if validation.get("complete") else "run 存在但 Evidence Pack 不完整",
+        }
+        artifacts = selected.get("artifacts") or {}
+        missing_keys = [key for key in CARD15_INNOVATION_KEYS if not artifacts.get(key) or artifacts[key].get("status") != "available"]
+        checks["innovation_artifacts"] = {
+            "status": "pass" if not missing_keys else "partial",
+            "detail": "五类创新产物均可读" if not missing_keys else "缺失或不可读：" + ", ".join(missing_keys),
+        }
+        # The manifest is intentionally read only to obtain the declared ID.
+        manifest_path = runs_path / selected["run_id"] / "manifest.json"
+        try:
+            manifest_snapshot = _read_json(manifest_path).get("snapshot_id")
+        except (OSError, json.JSONDecodeError):
+            manifest_snapshot = None
+    effective_snapshot = snapshot_id or manifest_snapshot
+    if effective_snapshot:
+        try:
+            payload = load_snapshot(effective_snapshot)
+            synthetic = bool(payload.get("source_metadata", {}).get("synthetic_demo"))
+            checks["snapshot"] = {
+                "status": "partial" if synthetic else "pass",
+                "detail": "snapshot 标记为 synthetic_demo，不能作为真实彩排资产" if synthetic else "snapshot 可读取且非 synthetic_demo",
+            }
+        except KeyError:
+            checks["snapshot"] = {"status": "blocked", "detail": "snapshot_id 不存在"}
+
+    failed = [name for name, check in checks.items() if check["status"] in {"missing", "blocked"}]
+    partial = [name for name, check in checks.items() if check["status"] == "partial"]
+    if failed:
+        status = "missing_assets" if all(checks[name]["status"] == "missing" for name in failed) else "blocked"
+    elif partial:
+        status = "partial"
+    else:
+        status = "ready"
+    return {
+        "status": status,
+        "reason": "真实材料、非 synthetic snapshot 与完整持久化 run 均已就绪" if status == "ready" else "真实材料彩排尚未满足验收条件",
+        "checks": checks,
+        "warnings": ["文件存在不等于用户授权；彩排前仍需确认材料使用权"] if status == "ready" else [],
+    }
+
+
+def _load_artifact(root: Path, names: tuple[str, ...]) -> dict[str, Any] | None:
+    """Load a persisted artifact without exposing server paths or inventing data."""
+    for name in names:
+        path = root / name
+        if not path.is_file():
+            continue
+        if path.suffix.lower() in {".json", ".md", ".txt"}:
+            try:
+                raw = path.read_text(encoding="utf-8")
+                payload = json.loads(raw) if path.suffix.lower() == ".json" else raw
+            except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+                return {"status": "invalid", "filename": name, "error": "unreadable_artifact"}
+            return {"status": "available", "filename": name, "media_type": "application/json" if path.suffix.lower() == ".json" else "text/markdown", "data": payload}
+        return {"status": "available", "filename": name, "media_type": "application/octet-stream", "data": None}
+    return None
+
+
+def _resolve_demo_run_dir(run_id: str, runs_root: str | Path) -> Path:
+    """Resolve one persisted run without allowing paths outside ``runs_root``."""
+    base = Path(runs_root).resolve()
+    candidate = (base / run_id).resolve()
+    try:
+        candidate.relative_to(base)
+    except ValueError as exc:
+        raise FileNotFoundError(f"Unknown demo run: {run_id}") from exc
+    if not candidate.is_dir():
+        raise FileNotFoundError(f"Unknown demo run: {run_id}")
+    return candidate
+
+
+def list_demo_runs(runs_root: str | Path = RUNS_DIR) -> list[dict[str, Any]]:
+    """Inventory CARD-15 runs through the service boundary only."""
+    root = Path(runs_root)
+    if not root.is_dir():
+        return []
+    rows = []
+    for run_dir in sorted((path for path in root.iterdir() if path.is_dir()), key=lambda path: path.name):
+        validation = validate_evidence_pack(run_dir, run_id=run_dir.name)
+        rows.append({"run_id": run_dir.name, "validation": validation.to_dict()})
+    return rows
+
+
+def demo_run_detail(run_id: str, *, runs_root: str | Path = RUNS_DIR) -> dict[str, Any]:
+    """Return one validated run and its persisted CARD-15 artifacts."""
+    try:
+        root = _resolve_demo_run_dir(run_id, runs_root)
+    except FileNotFoundError as exc:
+        raise KeyError(f"Unknown demo run: {run_id}") from exc
+    if not root.is_dir():
+        raise KeyError(f"Unknown demo run: {run_id}")
+    return {
+        "run_id": run_id,
+        "validation": validate_evidence_pack(root, run_id=run_id).to_dict(),
+        "timeline": replay_timeline(root),
+        "artifacts": {
+            key: _load_artifact(root, names)
+            for key, names in CARD15_ARTIFACTS.items()
+        },
+    }
+
+
+def card15_demo_data(snapshot_id: str, *, run_id: str | None = None,
+                     runs_root: str | Path = RUNS_DIR) -> dict[str, Any]:
+    """Return the read-only data contract consumed by the CARD-15 UI.
+
+    Snapshot-backed pages use existing research services. Innovation pages use
+    only persisted run artifacts; a missing artifact is returned as unavailable.
+    No function in this adapter runs a benchmark or invents a claim.
+    """
+    payload = load_snapshot(snapshot_id)
+    selected_run: dict[str, Any] | None = None
+    if run_id:
+        try:
+            selected_run = demo_run_detail(run_id, runs_root=runs_root)
+        except KeyError:
+            selected_run = None
+    return {
+        "snapshot": payload,
+        "summary": research_summary(snapshot_id),
+        "pages": {
+            "financial_analysis": research_financials(snapshot_id),
+            "valuation": research_valuation(snapshot_id),
+            "validator": research_validation(snapshot_id),
+            "evidence": research_evidence(snapshot_id),
+            "trace": research_trace(snapshot_id),
+            "report": research_report(snapshot_id),
+        },
+        "runs": list_demo_runs(runs_root),
+        "selected_run": selected_run,
+        "readiness": card15_readiness(snapshot_id=snapshot_id, run_id=run_id, runs_root=runs_root),
+        "provenance": {
+            "snapshot_id": snapshot_id,
+            "research_as_of": payload.get("research_as_of"),
+            "fetched_at": payload.get("fetched_at"),
+            "provider": payload.get("provider"),
+            "data_quality": payload.get("data_quality"),
+            "source": payload.get("source_metadata", {}).get("source"),
+            "synthetic_demo": bool(payload.get("source_metadata", {}).get("synthetic_demo")),
+        },
+    }
+
+
+def export_demo_evidence_pack(run_id: str, *, runs_root: str | Path = RUNS_DIR,
+                              output_dir: str | Path | None = None) -> dict[str, Any]:
+    """Export an existing run after validation; never export a fabricated pack."""
+    target_dir = Path(output_dir) if output_dir is not None else OUTPUT_DIR / "evidence_packs"
+    _resolve_demo_run_dir(run_id, runs_root)
+    if Path(runs_root).resolve() == target_dir.resolve():
+        raise ValueError("Evidence-pack output must be separate from the source runs directory.")
+    archive = export_evidence_pack(run_id, runs_root=runs_root, output_dir=target_dir)
+    return {"status": "available", "run_id": run_id, "filename": archive.name,
+            "media_type": "application/zip", "content": archive.read_bytes()}
+
+
+def ingest_demo_document(content: bytes, filename: str, *, symbol: str | None = None,
+                         fiscal_period: str | None = None,
+                         published_at: str | None = None) -> dict[str, Any]:
+    """Register and parse one uploaded document through DocumentService.
+
+    The returned facts remain parser candidates. They are not promoted to
+    snapshot Evidence until a downstream validator explicitly accepts them.
+    """
+    if not content:
+        raise ValueError("Uploaded document is empty.")
+    safe_name = Path(filename or "upload.txt").name
+    if Path(safe_name).suffix.lower() not in {".pdf", ".txt", ".md"}:
+        raise ValueError("Unsupported document type; use PDF, TXT, or Markdown.")
+    digest = hashlib.sha256(content).hexdigest()
+    DOCUMENT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    stored_path = DOCUMENT_UPLOAD_DIR / f"{digest[:20]}_{safe_name}"
+    stored_path.write_bytes(content)
+    record = DOCUMENT_SERVICE.register(
+        stored_path, symbol=symbol or None, fiscal_period=fiscal_period or None,
+        published_at=published_at or None,
+    )
+    result = DOCUMENT_SERVICE.parse(record.document_id)
+    payload = result.to_dict()
+    payload["document_id"] = record.document_id
+    payload["candidate_evidence_count"] = len(DOCUMENT_SERVICE.facts_as_evidence(record.document_id))
+    payload["acme_report"] = validate_multimodal_evidence(
+        result.facts, document_id=record.document_id,
+    ).to_dict()
+    return payload
 
 
 def _active_task(kind: str, symbol: str, snapshot_id: str | None) -> dict[str, Any] | None:

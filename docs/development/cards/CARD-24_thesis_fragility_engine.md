@@ -7,7 +7,7 @@
 | 对应赛题 | 北京赛：赛题6 反向验证增强（创新三）；华北五省：Graph Algorithms |
 | 依赖 | CARD-09（Claim-Evidence Graph + dependency semantics，必须）、CARD-23（护照/验证状态）、CARD-08（假设） |
 | 实现复杂度 | 中（约 4 人日） |
-| 状态 | ☐ 未开始 |
+| 状态 | ◐ 部分完成（离线基础版） |
 | Skill 要求 | 动手前加载 financial-data-provenance |
 
 > 本卡前身：v3.1 的 "Thesis Fragility Map"。v3.2 升级为 **Thesis Fragility Engine**：建立在 Claim-Evidence Graph 之上，实现 Thesis 模型、REQUIRED/SUPPORTING/OPTIONAL 依赖语义、Critical Dependency Detection、Minimal Cut Set、Numeric Fragility（可选）、Monitoring Metrics。**不是 Bull/Bear 打分**。
@@ -181,4 +181,4 @@ Demo 步骤 10b（DEMO_FLOW.md）：打开 Thesis Fragility Map → 展示关键
 
 | 日期 | 记录 |
 |---|---|
-|  |  |
+| 2026-10-03 | 新增 `src/cn/fragility/` 与 `tests/test_cn_fragility.py`：实现 REQUIRED 路径关键依赖/单点检测、有限深度最小割集、数值阈值来源白名单、未决假设和 MonitoringPlan；新增 `AnalyzeCnThesisFragilityTool`。尚未接入 Memo/UI 与 CARD-25 增量重验证。 |

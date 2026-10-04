@@ -155,29 +155,29 @@ LLM **不允许**：凭空创造金融数据；自己完成最终财务算术并
 | 01 | [Document Intelligence Layer](cards/CARD-01_document_intelligence.md) | P0 | 初赛 | 1(入口) | 无 | ☐ |
 | 02 | [Financial Normalization Engine](cards/CARD-02_financial_normalization.md) | P0 | 初赛 | 2 | 01 | ☐ |
 | 03 | [Financial Analysis Engine](cards/CARD-03_financial_analysis.md) | P0 | 初赛 | 2 | 02（04 为可选增强信号） | ☐ |
-| 04 | [Accounting Scope & Restatement](cards/CARD-04_accounting_scope.md) | **P0** | 初赛 | 2 | 01, 02 | ☐ |
+| 04 | [Accounting Scope & Restatement](cards/CARD-04_accounting_scope.md) | **P0** | 初赛 | 2 | 01, 02 | ☑ |
 | 05 | [Report Claim Extractor & Checker](cards/CARD-05_report_checker.md) | P0 | 初赛 | 5 | 02, 04 | ☐ |
-| 06 | [Retrieval Engine](cards/CARD-06_retrieval.md) | P0 | 初赛 | 链路① | 01 | ☐ |
-| 07 | [Run Manifest & Audit Trail](cards/CARD-07_run_manifest.md) | P0 | 初赛 | 竞赛硬性 | 无 | ☐ |
-| 08 | [Relative Valuation & Sensitivity](cards/CARD-08_relative_valuation.md) | P0 | 初赛 | 4 | 02, 07 | ☐ |
-| 09 | [Claim-Evidence Graph](cards/CARD-09_claim_evidence_graph.md) | P1 | 初赛 | 核心创新 | 01, 03, 07 | ☐ |
-| 10 | [Investment Memo](cards/CARD-10_investment_memo.md) | P0 | 初赛 | 6 | 03, 05, 06, 08, 09 | ☐ |
+| 06 | [Retrieval Engine](cards/CARD-06_retrieval.md) | P0 | 初赛 | 链路① | 01 | ☑ |
+| 07 | [Run Manifest & Audit Trail](cards/CARD-07_run_manifest.md) | P0 | 初赛 | 竞赛硬性 | 无 | ☑ |
+| 08 | [Relative Valuation & Sensitivity](cards/CARD-08_relative_valuation.md) | P0 | 初赛 | 4 | 02, 07 | ☑ |
+| 09 | [Claim-Evidence Graph](cards/CARD-09_claim_evidence_graph.md) | P1 | 初赛 | 核心创新 | 01, 03, 07 | ☑ |
+| 10 | [Investment Memo](cards/CARD-10_investment_memo.md) | P0 | 初赛 | 6 | 03, 05, 06, 08, 09 | ☑ |
 | 11 | [Real-world Benchmark](cards/CARD-11_real_benchmark.md) | P0 | 贯穿 | 7 | 无（持续） | ☐ |
 | 12 | [Evidence Pack & Audit Replay](cards/CARD-12_evidence_pack_replay.md) | P1 | 初赛 | 竞赛硬性 | 07, 09 | ☐ |
-| 13 | [Source Conflict Resolver](cards/CARD-13_source_conflict.md) | P1 | 初赛 | 2/5 | 01, 04 | ☐ |
-| 14 | [Prompt Registry](cards/CARD-14_prompt_registry.md) | P1 | 初赛起 | 竞赛模块清单 | 07 | ☐ |
+| 13 | [Source Conflict Resolver](cards/CARD-13_source_conflict.md) | P1 | 初赛 | 2/5 | 01, 04 | ☑ |
+| 14 | [Prompt Registry](cards/CARD-14_prompt_registry.md) | P1 | 初赛起 | 竞赛模块清单 | 07 | ☑ |
 | 15 | [Workbench Demo UI 增量](cards/CARD-15_demo_ui.md) | P1 | 贯穿 | 现场展示 | 各业务卡 | ☐ |
-| 16 | [DCF 完整实现（修正版）](cards/CARD-16_dcf_valuation.md) | P2 | 决赛 | 4 | 08, 02 | ☐ |
-| 17 | [Report Quality Diagnostics](cards/CARD-17_quality_diagnostics.md) | P2 | 决赛 | 7 | 05, 09, 12 | ☐ |
+| 16 | [DCF 完整实现（修正版）](cards/CARD-16_dcf_valuation.md) | P2 | 决赛 | 4 | 08, 02 | ☑ |
+| 17 | [Report Quality Diagnostics](cards/CARD-17_quality_diagnostics.md) | P2 | 决赛 | 7 | 05, 09, 12 | ☑ |
 | 18 | [Multi-Agent 编排（含消融）](cards/CARD-18_multiagent.md) | P2 | 决赛 | 6 | 全主线 | ☐ |
 | 19 | [Bull/Bear 结构化对照](cards/CARD-19_bull_bear.md) | P3 | 决赛 | 6 | 18 | ☐ |
 | 20 | [MCP Server](cards/CARD-20_mcp_server.md) | P3 | 决赛 | — | 工具面稳定 | ☐ |
 | 21 | [Industry Chain（重设数学）](cards/CARD-21_industry_chain.md) | P3 | 决赛 | 3 | 08 | ☐ |
-| 22 | [ACME（会计约束驱动的多模态证据理解引擎）](cards/CARD-22_acme_multimodal_evidence.md) | **P0** | 初赛 | 2/5（创新一） | 01, 02, 13 | ☐ |
-| 23 | [Financial Claim Passport & Proof Verifier（金融AI结论护照）](cards/CARD-23_claim_passport_verifier.md) | **P0** | 初赛 | 全链路（创新二） | 09, 07, 13 | ☐ |
-| 24 | [Thesis Fragility Engine（投资逻辑脆弱性分析）](cards/CARD-24_thesis_fragility_engine.md) | **P1** | 初赛增强 | 6（创新三） | 09, 23 | ☐ |
-| 25 | [Temporal Revalidation Engine（时间重验证引擎）](cards/CARD-25_temporal_revalidation_engine.md) | **P1** | 初赛增强 | 2/5（创新三） | 09, 13, 24 | ☐ |
-| 26 | [FinFuzz（金融语义对抗错误生成与压力测试）](cards/CARD-26_fin_fuzz.md) | **P1** | 初赛增强 | 7（评测创新） | 05, 09, 11 | ☐ |
+| 22 | [ACME（会计约束驱动的多模态证据理解引擎）](cards/CARD-22_acme_multimodal_evidence.md) | **P0** | 初赛 | 2/5（创新一） | 01, 02, 13 | ◐ 基础离线校验已实现 |
+| 23 | [Financial Claim Passport & Proof Verifier（金融AI结论护照）](cards/CARD-23_claim_passport_verifier.md) | **P0** | 初赛 | 全链路（创新二） | 09, 07, 13 | ◐ 基础离线 verifier 已实现 |
+| 24 | [Thesis Fragility Engine（投资逻辑脆弱性分析）](cards/CARD-24_thesis_fragility_engine.md) | **P1** | 初赛增强 | 6（创新三） | 09, 23 | ◐ 结构分析基础版已实现 |
+| 25 | [Temporal Revalidation Engine（时间重验证引擎）](cards/CARD-25_temporal_revalidation_engine.md) | **P1** | 初赛增强 | 2/5（创新三） | 09, 13, 24 | ◐ 基础增量传播已实现 |
+| 26 | [FinFuzz（金融语义对抗错误生成与压力测试）](cards/CARD-26_fin_fuzz.md) | **P1** | 初赛增强 | 7（评测创新） | 05, 09, 11 | ◐ 基础 mutation suite 已实现 |
 
 **工程暂缓项**（赛后处理，不设卡）：workbench.py 全量拆分（仅允许 CARD-15 最小增量）、统一任务队列 SQLite 化（Run Manifest 已覆盖可复现需求）、快照 Catalog（Document Registry 优先）。
 
