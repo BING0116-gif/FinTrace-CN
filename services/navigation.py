@@ -1,7 +1,7 @@
 """Navigation registry for the modular FinTrace-CN front end.
 
-信息架构（UI_REDESIGN_PLAN_V2 §3）：业务导航 8 项 + 「高级」折叠分组。
-演示/工程向页面全部降级到「高级」，默认不展开。
+信息架构（UI_REDESIGN_PLAN_V2 §3 + P2-3）：业务导航 9 项（含每日复盘）
++ 「高级」折叠分组。演示/工程向页面全部降级到「高级」，默认不展开。
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from __future__ import annotations
 import streamlit as st
 
 
-# 业务导航 8 项（导航注册表快照测试依赖此顺序）
+# 业务导航（P2-3 后含每日复盘，共 9 项；导航注册表快照测试依赖此顺序）
 BUSINESS_PAGES: list[tuple[str, str, str]] = [
     ("app_pages/overview.py", "总览", ":material/space_dashboard:"),
     ("app_pages/research_tasks.py", "研究任务", ":material/task_alt:"),
@@ -19,6 +19,7 @@ BUSINESS_PAGES: list[tuple[str, str, str]] = [
     ("app_pages/valuation.py", "估值", ":material/query_stats:"),
     ("app_pages/memo.py", "投资备忘录", ":material/description:"),
     ("app_pages/audit_replay.py", "审计回放", ":material/history:"),
+    ("app_pages/daily_review.py", "每日复盘", ":material/today:"),
 ]
 
 # 「高级」分组：演示 / 工程向页面，默认收起
@@ -28,7 +29,6 @@ ADVANCED_PAGES: list[tuple[str, str, str]] = [
     ("app_pages/agent_research.py", "AI Agent 研究", ":material/smart_toy:"),
     ("app_pages/agent_trace.py", "Agent 执行轨迹", ":material/route:"),
     ("app_pages/evaluations.py", "评测与消融", ":material/leaderboard:"),
-    ("app_pages/daily_review.py", "每日复盘", ":material/today:"),
     ("app_pages/legacy_compat.py", "旧版页面入口", ":material/arrow_back:"),
 ]
 

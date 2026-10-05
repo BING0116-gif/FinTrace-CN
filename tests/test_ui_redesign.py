@@ -14,8 +14,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
-BUSINESS_TITLES = ["总览", "研究任务", "文档与证据", "财务分析", "研判核查", "估值", "投资备忘录", "审计回放"]
-ADVANCED_TITLES = ["案例演示", "CARD-15 Demo", "AI Agent 研究", "Agent 执行轨迹", "评测与消融", "每日复盘", "旧版页面入口"]
+BUSINESS_TITLES = ["总览", "研究任务", "文档与证据", "财务分析", "研判核查", "估值", "投资备忘录", "审计回放", "每日复盘"]
+ADVANCED_TITLES = ["案例演示", "CARD-15 Demo", "AI Agent 研究", "Agent 执行轨迹", "评测与消融", "旧版页面入口"]
 
 
 def test_navigation_registry_snapshot() -> None:
