@@ -48,7 +48,9 @@ def service_contract_ready() -> bool:
     agent_missing = [name for name in REQUIRED_AGENT_FUNCTIONS if not callable(getattr(agent_service, name, None))]
     if missing or agent_missing:
         st.error("工作台组件版本不一致。请重启本地工作台后重试。")
-        st.caption(f"Missing service functions: {', '.join(missing + agent_missing)}")
+        # 技术细节只在调试模式下外露，避免明面出现英文报错符号（§4.2）。
+        if st.session_state.get("debug"):
+            st.caption(f"Missing service functions: {', '.join(missing + agent_missing)}")
         return False
     return True
 
@@ -1727,7 +1729,8 @@ def main() -> None:
     from services.navigation import pages
     from services import research_loader as loader
     from services.session_state import initialize
-    from ui.layout import context_bar, sidebar_context
+    from ui.context_bar import render as render_context_bar
+    from ui.layout import sidebar_context
     from ui.theme import apply
 
     st.set_page_config(
@@ -1739,11 +1742,12 @@ def main() -> None:
     apply()
     catalog = loader.catalog()
     initialize(catalog)
-    page = st.navigation(pages(), position="sidebar", expanded=True)
+    # 业务 8 项置顶，「高级」分组默认收起（UI_REDESIGN_PLAN_V2 §3）
+    page = st.navigation(pages(), position="sidebar", expanded=False)
     sidebar_context(catalog)
     item, summary = loader.current(catalog, st.session_state.get("selected_snapshot_id"))
     validation = loader.validation(item["id"]) if item else None
-    context_bar(item, summary, validation)
+    render_context_bar(item, summary, validation)
     page.run()
 
 
