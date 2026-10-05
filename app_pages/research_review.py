@@ -14,13 +14,26 @@ from services import research_loader as loader
 from src.cn.checker import DraftClaim, check_report
 from ui.chips import evidence_chip
 from ui.claim_passport import render
-from ui.status import badge, callout
+from ui.status import callout
 
 FINDING_LABELS = {
-    "numeric_mismatch": "错误数字",
-    "repeat_error": "重复错误",
-    "calculation_basis": "计算口径",
-    "missing_evidence": "缺少证据",
+    # 错误数字
+    "numeric_error": "错误数字",
+    "unit_error": "错误数字",
+    "valuation_multiple_error": "错误数字",
+    # 计算口径
+    "calculation_error": "计算口径",
+    "period_error": "计算口径",
+    "scope_error": "计算口径",
+    # 缺少证据
+    "missing_citation": "缺少证据",
+    "unsupported_citation": "缺少证据",
+    "wrong_citation": "缺少证据",
+    "wrong_page": "缺少证据",
+    # 其它
+    "stale_citation": "证据过期",
+    "revision_superseded": "证据过期",
+    "unsupported_causal_claim": "需核查",
 }
 
 SEVERITY_BG = {"error": "rgba(217,83,79,.10)", "warning": "rgba(217,148,0,.10)", "info": "rgba(31,111,235,.08)"}
@@ -28,10 +41,54 @@ STATUS_BG = {"verified": "rgba(21,149,112,.10)", "blocked": "rgba(217,83,79,.10)
 
 
 def _finding_label(check_type: str) -> str:
-    for key, label in FINDING_LABELS.items():
-        if key in check_type:
-            return label
-    return "需核查"
+    return FINDING_LABELS.get(check_type, "需核查")
+
+
+def _run_checker(claim: DraftClaim, facts: list[dict], research_as_of: str | None) -> tuple[list[dict], list[dict]]:
+    """运行确定性 Checker 并把 Claim / Finding 写入会话状态。"""
+    findings = check_report([claim], facts, research_as_of=research_as_of)
+    status = "verified" if not findings else "blocked" if any(row.severity == "error" for row in findings) else "warning"
+    st.session_state["checker_claims"] = [{
+        "claim_id": claim.claim_id, "title": claim.sentence, "statement": claim.sentence,
+        "kind": claim.mapped_claim_type, "status": status, "source": "、".join(claim.evidence_ids) or "（未引用）",
+        "accounting_context": {"metric": claim.metric, "period": claim.period, "unit": claim.unit},
+        "calculation": {"checker": "src.cn.checker.check_report"},
+        "assumption": None,
+        "dependency": list(claim.evidence_ids),
+        "evidence_ids": list(claim.evidence_ids),
+        "validation": {"status": status, "findings": [row.to_dict() for row in findings]},
+        "integrity": "确定性 Checker 输出；未经 Checker 的文本不会进入结论。",
+    }]
+    st.session_state["checker_findings"] = [row.to_dict() for row in findings]
+    return st.session_state["checker_claims"], st.session_state["checker_findings"]
+
+
+def _recheck_current(sid: str, research_as_of: str | None) -> None:
+    """Passport 主按钮：对当前声明重新运行确定性核查（复用既有链路）。"""
+    claims = st.session_state.get("checker_claims", [])
+    if not claims:
+        return
+    claim_data = claims[-1]
+    ctx = claim_data.get("accounting_context") or {}
+    evidence = loader.evidence(sid)
+    facts = [
+        {
+            "fact_id": row.get("evidence_id"), "metric": row.get("metric"),
+            "value": row.get("value"), "unit": row.get("unit"),
+            "fiscal_period": row.get("period"), "available_at": row.get("published_at"),
+            "scope": None, "version": "AS_REPORTED",
+        }
+        for row in evidence.get("records", []) if row.get("kind") == "fact"
+    ]
+    claim = DraftClaim(
+        str(claim_data.get("claim_id") or "draft_claim_1"),
+        str(claim_data.get("statement") or ""),
+        metric=ctx.get("metric"), period=ctx.get("period"),
+        value=None, unit=ctx.get("unit"),
+        claim_type={"fact": "factual", "inference": "valuation", "opinion": "opinion"}.get(str(claim_data.get("kind")), "factual"),
+        evidence_ids=tuple(claim_data.get("dependency") or []),
+    )
+    _run_checker(claim, facts, research_as_of)
 
 
 item, summary, validation = context_or_empty(
@@ -131,18 +188,7 @@ if item and summary:
                 claim_type=claim_type,
                 evidence_ids=() if evidence_id == "（未引用）" else (evidence_id,),
             )
-            findings = check_report([claim], facts, research_as_of=summary.get("research_as_of"))
-            status = "verified" if not findings else "blocked" if any(row.severity == "error" for row in findings) else "warning"
-            st.session_state["checker_claims"] = [{
-                "claim_id": claim.claim_id, "title": claim.sentence, "statement": claim.sentence,
-                "kind": claim.mapped_claim_type, "status": status, "source": evidence_id,
-                "accounting_context": {"metric": metric_name, "period": period, "unit": unit},
-                "calculation": {"checker": "src.cn.checker.check_report"},
-                "dependency": list(claim.evidence_ids),
-                "validation": {"status": status, "findings": [row.to_dict() for row in findings]},
-                "integrity": "确定性 Checker 输出；未经 Checker 的文本不会进入结论。",
-            }]
-            st.session_state["checker_findings"] = [row.to_dict() for row in findings]
+            _run_checker(claim, facts, summary.get("research_as_of"))
             st.rerun()
 
     with right:
@@ -153,7 +199,11 @@ if item and summary:
             st.info("尚未核查任何声明。在左侧填写声明句子后点击「核查此声明」。")
         else:
             claim = claims[-1]
-            render(claim)
+            render(
+                claim,
+                on_check=lambda: _recheck_current(sid, summary.get("research_as_of")),
+                evidence_records=evidence.get("records", []),
+            )
             findings = st.session_state.get("checker_findings", [])
             if findings:
                 st.subheader("核查发现")
