@@ -4,9 +4,28 @@ from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from services.session_state import set_snapshot
 from ui.status import callout
+from ui.wizard import render_wizard
 
 
 item, summary, validation = context_or_empty("研究任务", "用三步登记研究对象、上传材料并启动受控研究；每个任务保留事件流和失败状态。")
+
+# P2-4：全流程向导（①→⑨ 进度引导，状态由服务层数据派生）
+if item and summary:
+    sid = item["id"]
+    try:
+        wizard_signals = {
+            "evidence": bool(loader.evidence(sid).get("records")),
+            "financials": bool(loader.financials(sid).get("statements")),
+            "claims": bool(st.session_state.get("checker_claims")),
+            "valuation": bool(loader.valuation(sid).get("available")),
+            "memo": bool(loader.report(sid).get("available")),
+            "trace": bool(loader.trace(sid).get("events")),
+            "daily_review": False,
+        }
+    except Exception:
+        wizard_signals = {}
+    render_wizard(item, summary, wizard_signals, current_step="研究任务")
+    st.divider()
 
 step = st.segmented_control("任务步骤", ["1 选择研究对象", "2 上传材料", "3 确认并启动"], default="1 选择研究对象", key="task_step_control")
 if step == "1 选择研究对象":
@@ -30,6 +49,10 @@ elif step == "2 上传材料":
                 result = loader.service.ingest_demo_document(upload.getvalue(), upload.name, symbol=task_object.get("symbol"), fiscal_period=None, published_at=None)
                 record = result.get("document", {})
                 records.append({"file_name": upload.name, "document_id": result.get("document_id"), "sha256": record.get("sha256"), "status": record.get("status"), "facts": len(result.get("facts", [])), "warnings": result.get("warnings", []), "document": record, "fragments": result.get("fragments", []), "fact_rows": result.get("facts", [])})
+                # P2-1：保留 PDF 原文（仅本会话内存），供研判核查页内嵌高亮查看器使用。
+                if upload.name.lower().endswith(".pdf"):
+                    bytes_map = st.session_state.setdefault("task_document_bytes", {})
+                    bytes_map[upload.name] = upload.getvalue()
             except Exception as exc:
                 records.append({"file_name": upload.name, "status": "blocked", "warnings": [f"{type(exc).__name__}: {exc}"]})
         st.session_state.task_uploaded_documents = records
