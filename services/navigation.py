@@ -1,33 +1,45 @@
-"""Navigation registry for the modular FinTrace-CN front end."""
+"""Navigation registry for the modular FinTrace-CN front end.
+
+信息架构（UI_REDESIGN_PLAN_V2 §3）：业务导航 8 项 + 「高级」折叠分组。
+演示/工程向页面全部降级到「高级」，默认不展开。
+"""
 
 from __future__ import annotations
 
 import streamlit as st
 
 
+# 业务导航 8 项（导航注册表快照测试依赖此顺序）
+BUSINESS_PAGES: list[tuple[str, str, str]] = [
+    ("app_pages/overview.py", "总览", ":material/space_dashboard:"),
+    ("app_pages/research_tasks.py", "研究任务", ":material/task_alt:"),
+    ("app_pages/documents.py", "文档与证据", ":material/folder_open:"),
+    ("app_pages/financial_analysis.py", "财务分析", ":material/analytics:"),
+    ("app_pages/research_review.py", "研判核查", ":material/fact_check:"),
+    ("app_pages/valuation.py", "估值", ":material/query_stats:"),
+    ("app_pages/memo.py", "投资备忘录", ":material/description:"),
+    ("app_pages/audit_replay.py", "审计回放", ":material/history:"),
+]
+
+# 「高级」分组：演示 / 工程向页面，默认收起
+ADVANCED_PAGES: list[tuple[str, str, str]] = [
+    ("app_pages/demo.py", "案例演示", ":material/slideshow:"),
+    ("app_pages/card15_demo.py", "CARD-15 Demo", ":material/science:"),
+    ("app_pages/agent_research.py", "AI Agent 研究", ":material/smart_toy:"),
+    ("app_pages/agent_trace.py", "Agent 执行轨迹", ":material/route:"),
+    ("app_pages/evaluations.py", "评测与消融", ":material/leaderboard:"),
+    ("app_pages/daily_review.py", "每日复盘", ":material/today:"),
+    ("app_pages/legacy_compat.py", "旧版页面入口", ":material/arrow_back:"),
+]
+
+
+def _register(entries: list[tuple[str, str, str]]) -> list[st.Page]:
+    return [st.Page(path, title=title, icon=icon) for path, title, icon in entries]
+
+
 def pages() -> dict[str, list[st.Page]]:
+    """业务 8 项置顶；「高级」分组默认收起（workbench.py 传 expanded=False）。"""
     return {
-        "": [
-            st.Page("app_pages/overview.py", title="总览", icon=":material/space_dashboard:"),
-            st.Page("app_pages/research_tasks.py", title="研究任务", icon=":material/task_alt:"),
-        ],
-        "研究": [
-            st.Page("app_pages/documents.py", title="文档与证据", icon=":material/folder_open:"),
-            st.Page("app_pages/financial_analysis.py", title="财务分析", icon=":material/analytics:"),
-            st.Page("app_pages/report_checker.py", title="研报核查", icon=":material/fact_check:"),
-            st.Page("app_pages/valuation.py", title="估值分析", icon=":material/query_stats:"),
-            st.Page("app_pages/memo.py", title="投资备忘录", icon=":material/description:"),
-        ],
-        "可信与复盘": [
-            st.Page("app_pages/audit_replay.py", title="审计回放", icon=":material/history:"),
-            st.Page("app_pages/daily_review.py", title="每日复盘", icon=":material/today:"),
-            st.Page("app_pages/evaluations.py", title="系统评测", icon=":material/leaderboard:"),
-        ],
-        "演示模式": [
-            st.Page("app_pages/demo.py", title="案例演示", icon=":material/slideshow:"),
-            st.Page("app_pages/card15_demo.py", title="CARD-15 Demo", icon=":material/science:"),
-        ],
-        "兼容入口": [
-            st.Page("app_pages/legacy_compat.py", title="旧工作台入口", icon=":material/arrow_back:")
-        ],
+        "": _register(BUSINESS_PAGES),
+        "高级": _register(ADVANCED_PAGES),
     }
