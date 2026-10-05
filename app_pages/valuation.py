@@ -13,6 +13,7 @@ from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from ui.charts import financial_trends
 from ui.chips import chip_row, evidence_chip
+from ui.layout import section
 from ui.status import callout
 from ui.theme import TOKENS
 
@@ -355,13 +356,13 @@ if item and summary:
                 cols[2].metric("同行区间 P25–P75", f"{p25:.2f}–{p75:.2f}×" if p25 is not None and p75 is not None else "未覆盖")
                 confidence_label = {"high": "高", "medium": "中", "low": "低", "unavailable": "不可用"}.get(metric_data.get("confidence"), "未测量")
                 cols[3].metric("样本置信度", confidence_label)
-                st.markdown("##### 敏感性热力矩阵")
+                section("敏感性热力矩阵")
                 _sensitivity_heatmap(result, summary, allowed=allowed, metric_name=metric_name)
-                st.markdown("##### 估值区间条")
+                section("估值区间条")
                 _range_bar(result, price, scenario_key, metric_name, allowed=allowed)
                 if allowed:
                     st.caption("情景仅切换高亮档位：Bear=区间下限、Base=中位数、Bull=区间上限；当前价格为快照 RAW 收盘价。")
-                st.markdown("##### 假设注册表")
+                section("假设注册表")
                 formulas = result.get("formulas") or {}
                 if formulas:
                     registry = []
@@ -384,7 +385,7 @@ if item and summary:
                     st.caption("数据来源列的完整证据编号可在文档与证据页或审计回放查看。")
                 else:
                     st.info("暂无可注册的估值假设。")
-                st.markdown("##### 投资逻辑脆弱性")
+                section("投资逻辑脆弱性", hint="可拖拽调整布局")
                 metrics = summary.get("key_metrics") or {}
                 freshness = next((check for check in (validation or {}).get("checks", []) if check.get("code") == "snapshot_freshness"), {})
                 fragility_rows = [
@@ -395,7 +396,7 @@ if item and summary:
                 ]
                 conclusion_risk = "高" if not allowed else ("中" if (validation or {}).get("warnings") else "低")
                 _fragility_svg(fragility_rows, conclusion_risk)
-                st.markdown("##### 跟踪计划")
+                section("跟踪计划")
                 with st.container(border=True):
                     plan = st.columns(4)
                     plan[0].markdown("**可跟踪指标**\n\n季度营收、归母净利润、同业中位数变化")

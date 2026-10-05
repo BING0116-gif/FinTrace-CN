@@ -5,6 +5,7 @@ from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from src.cn.checker import DraftClaim, check_report
 from ui.claim_passport import render
+from ui.layout import section
 from ui.status import callout
 
 
@@ -42,7 +43,7 @@ if item and summary:
         render(claim)
         findings = st.session_state.get("checker_findings", [])
         if findings:
-            st.subheader("确定性 Checker Finding")
+            section("确定性 Checker Finding")
             st.dataframe(findings, hide_index=True, width="stretch")
         else:
             callout(claim.get("status", "degraded"), "Claim 已通过当前确定性检查；仍需结合全局 Validator 和 Evidence 依赖决定是否可用于报告。")

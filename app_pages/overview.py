@@ -10,19 +10,46 @@ import streamlit as st
 from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from src.cn import workbench_service as service
-from ui.cards import conclusion
 from ui.charts import conclusion_health_donut, mini_bar
-from ui.chips import chip_row, evidence_chip
+from ui.chips import evidence_chip
+from ui.layout import section
 from ui.stepper import stepper
 from ui.status import callout
+from ui.theme import TOKENS
+
+MUTED = TOKENS["muted"]
+TEXT = TOKENS["text"]
+
+
+def _card_head(title: str, color: str, *, hint: str = "", action: str = "", action_path: str = "") -> None:
+    """卡片头：彩色小方标 + 加粗标题 + 右侧说明/跳转箭头（对齐设计稿卡片头）。"""
+    hint_html = f"<span style='color:{MUTED};font-weight:500;font-size:.74rem;margin-left:.4rem'>{hint}</span>" if hint else ""
+    arrow = "<span style='margin-left:auto;color:#B8C4D0;font-weight:700'>›</span>"
+    if action and action_path:
+        arrow = f"<span style='margin-left:auto'><a class='ft-section-link' href='#{action_path}'>{action}</a></span>"
+    st.markdown(
+        f"<div style='display:flex;align-items:center;gap:.45rem;margin-bottom:.5rem'>"
+        f"<span style='width:20px;height:20px;border-radius:6px;background:{color}1A;color:{color};"
+        f"display:inline-flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:800'>▣</span>"
+        f"<span style='font-weight:800;font-size:.92rem;color:{TEXT}'>{title}</span>{hint_html}{arrow}</div>",
+        unsafe_allow_html=True,
+    )
+
+
+def _list_row(icon: str, icon_color: str, text: str, count: str = "") -> str:
+    count_html = f"<span class='ft-list-count'>{count}</span>" if count else ""
+    return (
+        f"<div class='ft-list-row'><span style='color:{icon_color};font-weight:800;flex:none'>{icon}</span>"
+        f"<span style='color:{TEXT}'>{text}</span>{count_html}</div>"
+    )
 
 
 def _yoy_fragment(change: float | None) -> str:
     if change is None:
-        return "<span style='color:#627D98;font-size:.8rem'>同比未覆盖</span>"
-    color = "#D9534F" if change >= 0 else "#159570"
+        return f"<span style='color:{MUTED};font-size:.8rem'>同比未覆盖</span>"
+    color = TOKENS["red_up"] if change >= 0 else TOKENS["green_down"]
     arrow = "▲" if change >= 0 else "▼"
-    return f"<span style='color:{color};font-weight:700;font-variant-numeric:tabular-nums'>{arrow} {abs(change):.1f}%</span>"
+    return f"<span style='color:{color};font-weight:800;font-variant-numeric:tabular-nums'>{arrow} {abs(change):.1f}%</span>"
 
 
 def _financial_series(points: list[dict], field: str, *, last: int = 5) -> dict[str, float]:
@@ -90,69 +117,90 @@ if item and summary:
 
     top_left, top_right = st.columns([1.7, 1])
     with top_left:
-        st.subheader("关键财务指标")
+        section("关键财务指标", hint="已披露数据 · 单位：亿元")
         points = trends.get("points", [])
         statements = financials.get("statements", [])
         latest_period = insights.get("latest_period")
         evidence_ids_by_period = {p.get("fiscal_period"): p.get("evidence_ids") or {} for p in points}
         latest_ids = evidence_ids_by_period.get(latest_period) or {}
         cf_series = _cash_flow_series(statements)
-        cf_latest_period = next(reversed(cf_series), None) if cf_series else None
+        cf_latest_period = next(iter(reversed(cf_series)), None) if cf_series else None
         cf_evidence = ""
         for row in statements:
             if row.get("fiscal_period") == cf_latest_period and (row.get("evidence_ids") or {}).get("operating_cash_flow"):
                 cf_evidence = row["evidence_ids"]["operating_cash_flow"]
-        cash_latest = cf_series.get(cf_latest_period) if cf_latest_period else None
         cards = [
-            ("营业收入", latest_period, insights.get("revenue_change_percent"), _financial_series(points, "revenue"), latest_ids.get("revenue"), "#1F6FEB"),
-            ("归母净利润", latest_period, insights.get("net_profit_change_percent"), _financial_series(points, "net_profit"), latest_ids.get("net_profit"), "#159570"),
-            ("经营活动现金流", cf_latest_period, _cash_flow_yoy(statements), cf_series, cf_evidence, "#D99400"),
+            ("营业收入（亿元）", latest_period, insights.get("revenue_change_percent"), _financial_series(points, "revenue"), latest_ids.get("revenue"), TOKENS["blue"]),
+            ("归母净利润（亿元）", latest_period, insights.get("net_profit_change_percent"), _financial_series(points, "net_profit"), latest_ids.get("net_profit"), TOKENS["green"]),
+            ("经营活动现金流（亿元）", cf_latest_period, _cash_flow_yoy(statements), cf_series, cf_evidence, TOKENS["amber"]),
         ]
         card_cols = st.columns(3)
         for col, (label, period, change, series, evidence_id, color) in zip(card_cols, cards):
             with col:
                 with st.container(border=True):
-                    st.markdown(f"<div style='color:#627D98;font-size:.78rem;font-weight:600'>{label}</div>", unsafe_allow_html=True)
+                    _card_head(label, color)
                     latest_value = list(series.values())[-1] if series else None
                     if latest_value is None:
-                        st.markdown("<div style='font-size:1.3rem;color:#627D98'>未覆盖</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:1.5rem;font-weight:800;color:{MUTED}'>未覆盖</div>", unsafe_allow_html=True)
                     else:
                         st.markdown(
-                            f"<div style='font-size:1.45rem;font-weight:700;font-variant-numeric:tabular-nums'>{latest_value:,.2f} <span style='font-size:.8rem;color:#627D98'>亿元</span></div>",
+                            f"<div style='font-size:1.55rem;font-weight:800;font-variant-numeric:tabular-nums;"
+                            f"letter-spacing:-.02em;color:{TEXT}'>{latest_value:,.1f}</div>",
                             unsafe_allow_html=True,
                         )
-                    st.markdown(_yoy_fragment(change) + f" <span style='color:#627D98;font-size:.75rem'>同比 · {period or '期间未覆盖'}</span>", unsafe_allow_html=True)
+                    st.markdown(
+                        _yoy_fragment(change)
+                        + f" <span style='color:{MUTED};font-size:.74rem'>同比增速（{period or '期间未覆盖'}）</span>",
+                        unsafe_allow_html=True,
+                    )
                     mini_bar(series, key=f"overview_mini_{label}_{sid}", color=color)
                     evidence_chip(evidence_id, "年报证据" if evidence_id else "", detail={"证据编号": evidence_id} if evidence_id else None)
     with top_right:
         with st.container(border=True):
-            st.markdown("#### 结论健康度")
+            _card_head("结论健康度", TOKENS["green"], hint="查看核查结果 →")
             conclusion_health_donut(verified_count, warning_count, blocked_count, key=f"overview_donut_{sid}")
         with st.container(border=True):
-            st.markdown("#### 证据完整度")
+            _card_head("证据完整度", TOKENS["blue"])
             total_records = len(records)
             if total_records:
                 st.progress(verified_count / total_records, text=f"已匹配 {verified_count} / {total_records} 条证据")
+                st.caption(f"已匹配 {verified_count:,} 条证据（来自 {len(set(str(x.get('provider')) for x in records))} 个来源）")
             else:
                 st.caption("暂无证据记录。")
-            chip_row([f"事实 ×{sum(1 for x in records if x.get('kind') == 'fact')}", f"计算 ×{sum(1 for x in records if x.get('kind') == 'calculation')}"])
 
     # 6. 最近的研究任务卡
     with st.container(border=True):
-        st.markdown("#### 最近的研究任务")
         try:
             evaluations = service.list_evaluations()
         except Exception:
             evaluations = []
         uploaded = st.session_state.get("task_uploaded_documents", [])
+        head_l, head_r = st.columns([3, 1])
+        with head_l:
+            _card_head("最近的研究任务", TOKENS["blue"])
+        with head_r:
+            st.markdown(
+                f"<div style='text-align:right;padding-top:.2rem'>"
+                f"<a class='ft-section-link' href='#research_tasks'>查看任务详情 →</a></div>",
+                unsafe_allow_html=True,
+            )
         if evaluations:
             recent = evaluations[0]
-            meta_cols = st.columns(5)
-            meta_cols[0].metric("类型", recent.get("kind") or "未记录")
-            meta_cols[1].metric("运行时间", str(recent.get("run_at") or "未记录")[:16])
-            meta_cols[2].metric("登记文档", len(uploaded))
-            meta_cols[3].metric("提取证据", len(records))
-            meta_cols[4].metric("产物版本", str(recent.get("benchmark_version") or "未记录")[:18])
+            name = (summary.get("profile") or {}).get("name") or item.get("name") or "未命名公司"
+            symbol = summary.get("symbol") or item.get("symbol") or "—"
+            st.markdown(
+                f"<div class='ft-list-row'><b style='color:{TEXT}'>{name}</b>"
+                f"<span style='color:{MUTED}'>{symbol}</span>"
+                f"<span style='margin-left:auto;background:rgba(21,149,112,.12);color:{TOKENS['green']};"
+                f"border-radius:9999px;padding:.1rem .6rem;font-size:.74rem;font-weight:700'>● 可验证</span></div>",
+                unsafe_allow_html=True,
+            )
+            meta = st.columns(5)
+            meta[0].metric("类型", recent.get("kind") or "未记录")
+            meta[1].metric("运行时间", str(recent.get("run_at") or "未记录")[:16])
+            meta[2].metric("登记文档", len(uploaded))
+            meta[3].metric("提取证据", len(records))
+            meta[4].metric("产物版本", str(recent.get("benchmark_version") or "未记录")[:18])
         else:
             st.caption("尚无已落盘的评测/任务产物；系统不会用占位数字代替。")
 
@@ -160,38 +208,63 @@ if item and summary:
     bottom_left, bottom_center, bottom_right = st.columns(3)
     with bottom_left:
         with st.container(border=True):
-            st.markdown("#### 关键结论")
+            _card_head("关键结论", TOKENS["green"], hint="（选）")
             if not allowed:
                 callout("blocked", "Validator 已阻断确定性结论；页面隐藏推测性估值与报告结论。")
             else:
-                status = insights.get("performance_status", "insufficient_data")
-                conclusion(
-                    "业绩状态",
-                    f"服务层判定为 `{status}`，同比变化来自版本化财务期间数据。",
-                    kind="inference", status=(validation or {}).get("status", "warning"),
-                    evidence_count=len(records),
+                status_label = {"improving": "改善", "under_pressure": "承压", "diverging": "分化"}.get(
+                    insights.get("performance_status"), "数据不足"
                 )
+                rev = insights.get("revenue_change_percent")
+                profit = insights.get("net_profit_change_percent")
+                rows = [
+                    _list_row("✓", TOKENS["green"], f"业绩状态：<b>{status_label}</b>（服务层判定，来自版本化财务数据）"),
+                    _list_row("▲" if (rev or 0) >= 0 else "▼", TOKENS["red_up"] if (rev or 0) >= 0 else TOKENS["green_down"],
+                              f"营业收入同比 {rev:+.1f}%" if rev is not None else "营业收入同比未覆盖", latest_period or ""),
+                    _list_row("▲" if (profit or 0) >= 0 else "▼", TOKENS["red_up"] if (profit or 0) >= 0 else TOKENS["green_down"],
+                              f"归母净利润同比 {profit:+.1f}%" if profit is not None else "归母净利润同比未覆盖", latest_period or ""),
+                    _list_row("✓", TOKENS["green"], f"已验证证据 {verified_count:,} 条可追溯至原文"),
+                ]
+                st.markdown("".join(rows), unsafe_allow_html=True)
     with bottom_center:
         with st.container(border=True):
-            st.markdown("#### 主要证据来源")
+            _card_head("主要证据来源", TOKENS["blue"], hint=f"{len(records):,} 份")
             providers: dict[str, int] = {}
             for record in records:
                 provider = str(record.get("provider") or "未记录")
                 providers[provider] = providers.get(provider, 0) + 1
             if providers:
-                chip_row([f"{name} ×{count}" for name, count in sorted(providers.items(), key=lambda kv: -kv[1])])
+                colors = [TOKENS["blue"], TOKENS["green"], TOKENS["amber"], TOKENS["coral"], MUTED]
+                rows = "".join(
+                    _list_row("▤", colors[index % len(colors)], name, f"{count:,}")
+                    for index, (name, count) in enumerate(sorted(providers.items(), key=lambda kv: -kv[1])[:6])
+                )
+                st.markdown(rows, unsafe_allow_html=True)
             else:
                 st.caption("暂无证据来源记录。")
             st.caption("来源与快照口径见文档与证据页。")
     with bottom_right:
         with st.container(border=True):
-            st.markdown(f"#### 风险与关注点 <span style='background:#D99400;color:#fff;border-radius:9999px;padding:.05rem .5rem;font-size:.72rem'>{len(warnings)}</span>", unsafe_allow_html=True)
+            badge_color = TOKENS["amber"] if warnings else TOKENS["green"]
+            st.markdown(
+                f"<div style='display:flex;align-items:center;gap:.45rem;margin-bottom:.5rem'>"
+                f"<span style='width:20px;height:20px;border-radius:6px;background:rgba(217,148,0,.1);"
+                f"color:{TOKENS['amber']};display:inline-flex;align-items:center;justify-content:center;"
+                f"font-size:.72rem;font-weight:800'>!</span>"
+                f"<span style='font-weight:800;font-size:.92rem;color:{TEXT}'>风险与关注点</span>"
+                f"<span style='margin-left:auto;background:rgba(217,148,0,.12);color:{badge_color};"
+                f"border-radius:9999px;padding:.08rem .55rem;font-size:.72rem;font-weight:700'>{len(warnings)} 项</span></div>",
+                unsafe_allow_html=True,
+            )
             if warnings:
-                for check in warnings:
-                    st.markdown(
-                        f"<div style='background:rgba(217,148,0,.10);border-radius:8px;padding:.45rem .7rem;margin-bottom:.4rem;font-size:.82rem'>"
-                        f"<b>{check.get('label', check.get('code'))}</b> · {check.get('detail')}</div>",
-                        unsafe_allow_html=True,
+                rows = "".join(
+                    _list_row(
+                        "●" if check.get("status") == "warning" else "✕",
+                        TOKENS["amber"] if check.get("status") == "warning" else TOKENS["coral"],
+                        f"<b>{check.get('label', check.get('code'))}</b> · {check.get('detail')}",
                     )
+                    for check in warnings[:6]
+                )
+                st.markdown(rows, unsafe_allow_html=True)
             else:
-                st.caption("当前没有需要关注的风险项。")
+                st.markdown(_list_row("✓", TOKENS["green"], "当前没有需要关注的风险项"), unsafe_allow_html=True)

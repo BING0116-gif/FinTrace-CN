@@ -14,6 +14,7 @@ from services import research_loader as loader
 from src.cn.checker import DraftClaim, check_report
 from ui.chips import evidence_chip
 from ui.claim_passport import render
+from ui.layout import section
 from ui import pdf_viewer
 from ui.status import callout
 
@@ -112,7 +113,7 @@ if item and summary:
     ]
 
     with left:
-        st.subheader("研报草稿")
+        section("研报草稿")
         report_available = loader.report(sid)
         prefill = st.session_state.get("report_draft", "") or (
             report_available.get("content") or "" if report_available.get("available") else ""
@@ -193,7 +194,7 @@ if item and summary:
             st.rerun()
 
     with right:
-        st.subheader("声明核查护照")
+        section("声明核查护照", hint="Claim Passport")
         st.caption("Claim Passport · 每个声明的证据与验证状态")
         claims = st.session_state.get("checker_claims", [])
         if not claims:
@@ -207,7 +208,7 @@ if item and summary:
             )
             findings = st.session_state.get("checker_findings", [])
             if findings:
-                st.subheader("核查发现")
+                section("核查发现")
                 st.dataframe(pd.DataFrame(findings), hide_index=True, width="stretch")
             else:
                 callout(claim.get("status", "degraded"), "声明已通过当前确定性检查；仍需结合全局 Validator 和证据依赖决定是否可用于报告。")
@@ -218,7 +219,7 @@ if item and summary:
             )
 
     with right:
-        st.subheader("证据与原文")
+        section("证据与原文")
         records = evidence.get("records", [])
         if not records:
             st.info("当前快照没有可展示的证据来源。")
@@ -237,7 +238,7 @@ if item and summary:
 
     # P2-1：PDF 双栏高亮核查器（左 PDF / 右声明，点击高亮对应句子）
     st.divider()
-    st.subheader("PDF 双栏高亮核查器")
+    section("PDF 双栏高亮核查器")
     pdf_bytes_map = st.session_state.get("task_document_bytes") or {}
     if not pdf_bytes_map:
         st.caption("上传 PDF 研报后（研究任务页 → 上传材料），这里会内嵌渲染 PDF 并高亮已核查声明。")

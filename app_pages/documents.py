@@ -4,6 +4,7 @@ import streamlit as st
 from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from ui.evidence import dependency_graph, evidence_table, export_payload
+from ui.layout import section
 
 
 item, summary, validation = context_or_empty("文档与证据", "文档登记、解析状态、Evidence Ledger 和原文定位集中在一个可回溯界面。")
@@ -12,22 +13,22 @@ if item and summary:
     snapshot_id = item["id"]
     left, center, right = st.columns([1, 2, 1.2])
     with left:
-        st.subheader("研究快照")
+        section("研究快照")
         catalog = loader.catalog()
         st.dataframe([{key: row.get(key) for key in ("symbol", "name", "research_as_of", "id")} for row in catalog], hide_index=True, width="stretch")
     with center:
-        st.subheader("Evidence 表")
+        section("Evidence 表")
         result = loader.evidence(snapshot_id)
         evidence_table(result, key=f"evidence_{snapshot_id}")
     with right:
-        st.subheader("快照详情")
+        section("快照详情")
         st.write({"document_id": snapshot_id, "symbol": summary.get("symbol"), "provider": summary.get("provider"), "research_as_of": summary.get("research_as_of"), "currency": (summary.get("profile") or {}).get("currency")})
         st.caption("原始文档页码仅在文档解析结果提供时展示；没有页码不会被 UI 补造。")
-    st.subheader("证据依赖")
+    section("证据依赖")
     dependency_graph(result.get("dependency_graph", {}))
     export_payload({"snapshot": summary, "validation": validation, "evidence": result}, f"{summary.get('symbol', 'research')}_evidence_pack.json")
 
-st.subheader("已解析的上传文档")
+section("已解析的上传文档")
 uploaded = st.session_state.get("task_uploaded_documents", [])
 if uploaded:
     st.dataframe(pd.DataFrame(uploaded), hide_index=True, width="stretch")

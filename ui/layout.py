@@ -20,6 +20,30 @@ def page_title(title: str, description: str, *, eyebrow: str = "FinTrace-CN") ->
     st.caption(description)
 
 
+def section(title: str, *, hint: str | None = None, action: str | None = None, action_path: str | None = None) -> None:
+    """蓝条区块标题（对齐设计稿「| 相对估值」样式）。
+
+    hint 为标题后的灰色说明；action + action_path 渲染右侧「查看详情 →」跳转。
+    """
+    hint_html = f"<span class='ft-section-hint'>{hint}</span>" if hint else ""
+    if action and action_path:
+        left, right = st.columns([4, 1])
+        with left:
+            st.markdown(
+                f"<div class='ft-section'><span class='ft-section-bar'></span>"
+                f"<span class='ft-section-title'>{title}</span>{hint_html}</div>",
+                unsafe_allow_html=True,
+            )
+        with right:
+            st.page_link(action_path, label=action, icon=":material/arrow_forward:")
+    else:
+        st.markdown(
+            f"<div class='ft-section'><span class='ft-section-bar'></span>"
+            f"<span class='ft-section-title'>{title}</span>{hint_html}</div>",
+            unsafe_allow_html=True,
+        )
+
+
 def card_grid(cols: int, cards: list[Callable[[], None]], *, gap: int = 12) -> None:
     """统一卡片网格：12px 间距、卡片内边距 16px（由主题层控制）。
 
@@ -38,8 +62,11 @@ def card_grid(cols: int, cards: list[Callable[[], None]], *, gap: int = 12) -> N
 
 def sidebar_context(catalog: list[dict[str, Any]]) -> None:
     with st.sidebar:
-        st.markdown("## FinTrace-CN")
-        st.caption("可验证的 A 股研究工作台")
+        st.markdown(
+            "<div class='ft-brand'><div class='ft-brand-name'>◈ FinTrace-CN</div>"
+            "<div class='ft-brand-sub'>A 股研究验证平台</div></div>",
+            unsafe_allow_html=True,
+        )
         if catalog:
             options = {f"{item.get('name') or item.get('symbol')} · {item.get('symbol')}": item["id"] for item in catalog}
             ids = list(options.values())

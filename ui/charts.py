@@ -7,6 +7,8 @@ from typing import Any
 import pandas as pd
 import streamlit as st
 
+# conclusion_health_donut 的图例为 HTML 外置渲染。
+
 
 def financial_trends(points: list[dict[str, Any]], *, key: str) -> None:
     rows = [{"期间": item.get("fiscal_period"), "营业收入": item.get("revenue"), "归母净利润": item.get("net_profit")} for item in points if item.get("revenue") is not None or item.get("net_profit") is not None]
@@ -33,8 +35,8 @@ def cash_flow_trends(statements: list[dict[str, Any]]) -> None:
     st.line_chart(pd.DataFrame(rows).set_index("期间"), width="stretch", height=280)
 
 
-def conclusion_health_donut(verified: int, warning: int, blocked: int, *, key: str, total_label: str = "结论总数") -> None:
-    """结论健康度三扇区 donut：可验证 / 需进一步核查 / 存在冲突受限。"""
+def conclusion_health_donut(verified: int, warning: int, blocked: int, *, key: str, total_label: str = "条结论") -> None:
+    """结论健康度三扇区 donut + 右侧图例（对齐设计稿图1：图例含计数与百分比）。"""
     import plotly.graph_objects as go
 
     from ui.theme import TOKENS
@@ -43,27 +45,41 @@ def conclusion_health_donut(verified: int, warning: int, blocked: int, *, key: s
     if total == 0:
         st.info("暂无可聚合的验证状态。")
         return
+    legend_rows = "".join(
+        f"<div style='display:flex;align-items:center;gap:.4rem;font-size:.8rem;margin:.3rem 0'>"
+        f"<span style='width:9px;height:9px;border-radius:9999px;background:{color};flex:none'></span>"
+        f"<span style='color:#172B4D'>{label}</span>"
+        f"<span style='margin-left:auto;font-weight:700;color:#172B4D'>&nbsp;{value}</span>"
+        f"<span style='color:#627D98;width:38px;text-align:right'>{value * 100 // total}%</span></div>"
+        for label, value, color in (
+            ("可验证", verified, TOKENS["green"]),
+            ("需进一步核查", warning, TOKENS["amber"]),
+            ("存在冲突/受限", blocked, TOKENS["coral"]),
+        )
+    )
     fig = go.Figure(go.Pie(
         values=[verified, warning, blocked],
         labels=["可验证", "需进一步核查", "存在冲突受限"],
-        hole=0.68,
-        marker=dict(colors=[TOKENS["green"], TOKENS["amber"], TOKENS["coral"]]),
-        textinfo="value",
-        texttemplate="%{value}",
-        hovertemplate="%{label}：%{value}<extra></extra>",
-        sort=False,
-        direction="clockwise",
+        hole=0.66, marker=dict(colors=[TOKENS["green"], TOKENS["amber"], TOKENS["coral"]]),
+        textinfo="none", hovertemplate="%{label}：%{value}<extra></extra>",
+        sort=False, direction="clockwise",
     ))
     fig.update_layout(
-        height=220, margin=dict(l=8, r=8, t=8, b=8),
-        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-        showlegend=True, legend=dict(orientation="h", y=-0.12, font=dict(size=11)),
+        height=190, margin=dict(l=4, r=4, t=4, b=4),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", showlegend=False,
         annotations=[dict(
-            text=f"<b>{total}</b><br><span style='font-size:11px;color:#627D98'>{total_label}</span>",
-            x=0.5, y=0.5, showarrow=False, font=dict(size=22),
+            text=f"<b style='color:#D99400'>{total}</b><br><span style='font-size:10px;color:#627D98'>{total_label}</span>",
+            x=0.5, y=0.5, showarrow=False, font=dict(size=19),
         )],
     )
-    st.plotly_chart(fig, width="stretch", key=key, config={"displayModeBar": False})
+    chart_col, legend_col = st.columns([1.15, 1])
+    with chart_col:
+        st.plotly_chart(fig, width="stretch", key=key, config={"displayModeBar": False})
+    with legend_col:
+        st.markdown(
+            f"<div style='padding-top:1.2rem'>{legend_rows}</div>",
+            unsafe_allow_html=True,
+        )
 
 
 def mini_bar(series: dict[str, float | None], *, key: str, color: str | None = None) -> None:

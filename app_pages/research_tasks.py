@@ -4,6 +4,7 @@ from app_pages._shared import context_or_empty
 from services import research_loader as loader
 from services.session_state import set_snapshot
 from ui.status import callout
+from ui.layout import section
 from ui.wizard import render_wizard
 
 
@@ -83,7 +84,7 @@ else:
             except Exception as exc:
                 callout("blocked", f"任务启动失败：{type(exc).__name__}: {exc}")
 
-st.subheader("任务事件流")
+section("任务事件流")
 tasks = loader.service.list_tasks()
 if not tasks:
     st.info("尚无任务记录。")
