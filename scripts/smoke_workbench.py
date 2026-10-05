@@ -20,7 +20,8 @@ from streamlit.testing.v1 import AppTest
 ROOT = Path(__file__).resolve().parents[1]
 WORKBENCH = str(ROOT / "workbench.py")
 
-# Must stay in sync with NAVIGATION in workbench.py
+# Legacy labels remain covered as a compatibility contract. Modular page paths
+# below cover the redesign navigation registry.
 PAGES = [
     "案例演示",
     "CARD-15 Demo",
@@ -35,6 +36,24 @@ PAGES = [
     "研究任务",
     "评测与消融",
     "每日复盘",
+]
+
+# Modular redesign pages are exercised through Streamlit's real navigation
+# runtime as well as the legacy compatibility labels above.
+MODULAR_PAGE_PATHS = [
+    "app_pages/overview.py",
+    "app_pages/research_tasks.py",
+    "app_pages/documents.py",
+    "app_pages/financial_analysis.py",
+    "app_pages/report_checker.py",
+    "app_pages/valuation.py",
+    "app_pages/memo.py",
+    "app_pages/audit_replay.py",
+    "app_pages/daily_review.py",
+    "app_pages/evaluations.py",
+    "app_pages/demo.py",
+    "app_pages/card15_demo.py",
+    "app_pages/legacy_compat.py",
 ]
 
 
@@ -70,7 +89,21 @@ def main() -> int:
         else:
             print(f"[ OK ] {page}")
 
-    total = len(PAGES)
+    modular_at = AppTest.from_file(WORKBENCH, default_timeout=30)
+    modular_at.session_state["selected_snapshot_id"] = "600519.SH_20260810_tushare_v1"
+    modular_at.run()
+    for page_path in MODULAR_PAGE_PATHS:
+        modular_at.switch_page(page_path)
+        modular_at.run()
+        if modular_at.exception:
+            err = modular_at.exception[0]
+            fails.append((page_path, f"{type(err.value).__name__}: {err.value}"))
+            print(f"[FAIL] {page_path}")
+            print(f"        → {type(err.value).__name__}: {err.value}")
+        else:
+            print(f"[ OK ] {page_path}")
+
+    total = len(PAGES) + len(MODULAR_PAGE_PATHS)
     passed = total - len(fails)
     print(f"\n{passed}/{total} pages clean")
     if fails:

@@ -1679,7 +1679,7 @@ def daily_review() -> None:
 
 
 
-def main() -> None:
+def legacy_main() -> None:
     style()
     if not service_contract_ready():
         return
@@ -1720,6 +1720,31 @@ def main() -> None:
         return
     header(snapshot, metadata)
     {"研究总览": lambda: overview(snapshot, metadata), "市场与行情": lambda: market(snapshot), "财务表现": lambda: financials(snapshot), "同行估值": lambda: valuation_safe(snapshot, metadata), "证据与校验": lambda: evidence(snapshot, metadata), "Agent 执行轨迹": lambda: trace(snapshot), "研究报告": lambda: report(snapshot), "研究任务": tasks, "评测与消融": evaluations}[page]()
+
+
+def main() -> None:
+    """Modular Streamlit entrypoint; legacy functions remain available for compatibility."""
+    from services.navigation import pages
+    from services import research_loader as loader
+    from services.session_state import initialize
+    from ui.layout import context_bar, sidebar_context
+    from ui.theme import apply
+
+    st.set_page_config(
+        page_title="FinTrace-CN · A 股研究工作台",
+        page_icon=":material/verified:",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
+    apply()
+    catalog = loader.catalog()
+    initialize(catalog)
+    page = st.navigation(pages(), position="sidebar", expanded=True)
+    sidebar_context(catalog)
+    item, summary = loader.current(catalog, st.session_state.get("selected_snapshot_id"))
+    validation = loader.validation(item["id"]) if item else None
+    context_bar(item, summary, validation)
+    page.run()
 
 
 if __name__ == "__main__":
