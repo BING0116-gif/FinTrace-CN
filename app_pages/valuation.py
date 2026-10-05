@@ -1,9 +1,11 @@
 """估值页（UI_REDESIGN_PLAN_V2 §5.3，对齐设计稿图3）。
 
 顶部行情条（RAW 口径）+ 六个 Tab；相对估值为主视图：
-情景切换 → 敏感性热力矩阵 → 估值区间条 → 假设注册表 → 投资逻辑脆弱性（静态版）→ 跟踪计划。
+情景切换 → 敏感性热力矩阵 → 估值区间条 → 假设注册表 → 投资逻辑脆弱性（P2-2 交互拖拽版）→ 跟踪计划。
 矩阵与区间仅为服务层倍数的确定性换算可视化；Validator 阻断时隐藏隐含价格。
 """
+
+import json
 
 import streamlit as st
 
@@ -176,38 +178,126 @@ def _range_bar(result: dict, price: float | None, scenario_key: str, metric_name
 
 
 def _fragility_svg(rows: list[dict], conclusion_risk: str) -> None:
-    """投资逻辑脆弱性（一期静态版）：假设卡片 → 箭头 → 投资结论节点。"""
-    card_w, card_h, gap = 150, 46, 14
-    width = max(560, len(rows) * (card_w + gap) + card_w + 120)
-    height = 240
-    node_cx, node_cy = width - card_w - 40, height / 2
-    risk_color = {"高": "#D9534F", "中": "#D99400"}.get(conclusion_risk, "#159570")
-    parts = [
-        f"<svg viewBox='0 0 {width} {height}' xmlns='http://www.w3.org/2000/svg' style='width:100%;height:auto'>",
-        f"<text x='{node_cx + card_w / 2}' y='26' text-anchor='middle' font-size='13' fill='#172B4D' font-weight='700'>投资结论</text>",
-    ]
-    for index, row in enumerate(rows):
-        y = (height - len(rows) * (card_h + gap)) / 2 + index * (card_h + gap)
-        badge_color = {"高": "#D9534F", "中": "#D99400"}.get(row["risk"], "#159570")
-        parts.append(
-            f"<g><rect x='12' y='{y}' width='{card_w}' height='{card_h}' rx='10' fill='#FFFFFF' stroke='#E5EAF0'/>"
-            f"<text x='24' y='{y + 19}' font-size='11' fill='#172B4D' font-weight='600'>{row['label']}</text>"
-            f"<text x='24' y='{y + 36}' font-size='11' fill='#627D98'>{row['value']}</text>"
-            f"<circle cx='{card_w - 14}' cy='{y + card_h / 2}' r='8' fill='{badge_color}'/>"
-            f"<text x='{card_w - 14}' y='{y + card_h / 2 + 4}' font-size='9' fill='#fff' text-anchor='middle'>{row['risk']}</text>"
-            f"<path d='M {12 + card_w} {y + card_h / 2} C {12 + card_w + 50} {y + card_h / 2}, {node_cx - 50} {node_cy}, {node_cx - 6} {node_cy}' "
-            f"fill='none' stroke='#B8C4D0' stroke-width='1.6'/>"
-            f"<path d='M {node_cx - 6} {node_cy} l -8 -4 v 8 z' fill='#B8C4D0'/></g>"
-        )
-    parts.append(
-        f"<g><rect x='{node_cx}' y='{node_cy - card_h / 2}' width='{card_w}' height='{card_h}' rx='10' "
-        f"fill='rgba(31,111,235,.08)' stroke='{risk_color}'/>"
-        f"<text x='{node_cx + card_w / 2}' y='{node_cy + 5}' text-anchor='middle' font-size='12' fill='#172B4D' font-weight='700'>估值结论</text>"
-        f"<circle cx='{node_cx + card_w - 14}' cy='{node_cy - card_h / 2 + 2}' r='8' fill='{risk_color}'/>"
-        f"<text x='{node_cx + card_w - 14}' y='{node_cy - card_h / 2 + 5}' font-size='9' fill='#fff' text-anchor='middle'>{conclusion_risk}</text></g>"
-    )
-    parts.append("</svg>")
-    st.markdown("".join(parts), unsafe_allow_html=True)
+    """投资逻辑脆弱性（P2-2 交互版）：假设卡片可拖拽，箭头自动跟随。"""
+    payload = json.dumps({"rows": rows, "conclusion_risk": conclusion_risk}, ensure_ascii=False)
+    html = f"""
+<div id="ft-frag" style="border:1px solid #E5EAF0;border-radius:12px;background:#FFFFFF;padding:6px">
+  <svg id="ft-frag-svg" width="100%" height="250" xmlns="http://www.w3.org/2000/svg"></svg>
+  <div style="font-size:.74rem;color:#627D98;padding:2px 8px 6px">
+    拖拽假设卡片或结论节点调整布局；箭头连线自动跟随。风险徽章：<span style="color:#D9534F">■ 高</span>
+    <span style="color:#D99400">■ 中</span> <span style="color:#159570">■ 低</span></div>
+</div>
+<script>
+(function () {{
+  const DATA = {payload};
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const svg = document.getElementById('ft-frag-svg');
+  const CARD_W = 150, CARD_H = 46;
+  const width = svg.clientWidth || 800, height = 250;
+  const RISK_COLOR = {{ '高': '#D9534F', '中': '#D99400' }};
+  const nodes = [];
+
+  function el(name, attrs, parent) {{
+    const node = document.createElementNS(SVG_NS, name);
+    for (const key in attrs) node.setAttribute(key, attrs[key]);
+    (parent || svg).appendChild(node);
+    return node;
+  }}
+  function riskColor(level) {{ return RISK_COLOR[level] || '#159570'; }}
+
+  const n = DATA.rows.length;
+  const startY = (height - n * (CARD_H + 16)) / 2 + 8;
+  DATA.rows.forEach(function (row, index) {{
+    nodes.push({{
+      id: 'a' + index, label: row.label, value: row.value, risk: row.risk,
+      x: 16, y: startY + index * (CARD_H + 16), kind: 'assumption',
+    }});
+  }});
+  nodes.push({{
+    id: 'conclusion', label: '估值结论', value: '投资结论节点', risk: DATA.conclusion_risk,
+    x: Math.max(width - CARD_W - 24, CARD_W + 160), y: height / 2 - CARD_H / 2, kind: 'conclusion',
+  }});
+
+  const edgesGroup = el('g', {{}});
+  const nodesGroup = el('g', {{}});
+
+  function anchorRight(node) {{ return {{ x: node.x + CARD_W, y: node.y + CARD_H / 2 }}; }}
+  function anchorLeft(node) {{ return {{ x: node.x, y: node.y + CARD_H / 2 }}; }}
+
+  function drawEdges() {{
+    edgesGroup.innerHTML = '';
+    nodes.forEach(function (node) {{
+      if (node.kind !== 'assumption') return;
+      const from = anchorRight(node);
+      const to = anchorLeft(nodes.find(item => item.id === 'conclusion'));
+      const path = el('path', {{
+        d: 'M ' + from.x + ' ' + from.y +
+           ' C ' + (from.x + 60) + ' ' + from.y + ', ' + (to.x - 60) + ' ' + to.y + ', ' + (to.x - 8) + ' ' + to.y,
+        fill: 'none', stroke: '#B8C4D0', 'stroke-width': 1.6,
+      }}, edgesGroup);
+      const arrow = el('path', {{
+        d: 'M ' + (to.x - 6) + ' ' + to.y + ' l -9 -4.5 v 9 z', fill: '#B8C4D0',
+      }}, edgesGroup);
+      path.dataset.to = '1'; arrow.dataset.to = '1';
+    }});
+  }}
+
+  function drawNodes() {{
+    nodesGroup.innerHTML = '';
+    nodes.forEach(function (node) {{
+      const g = el('g', {{ 'data-node': node.id, style: 'cursor:move' }}, nodesGroup);
+      const color = riskColor(node.risk);
+      el('rect', {{
+        x: node.x, y: node.y, width: CARD_W, height: CARD_H, rx: 10,
+        fill: node.kind === 'conclusion' ? 'rgba(31,111,235,.08)' : '#FFFFFF',
+        stroke: node.kind === 'conclusion' ? color : '#E5EAF0', 'stroke-width': 1.4,
+      }}, g);
+      const label = el('text', {{
+        x: node.kind === 'conclusion' ? node.x + CARD_W / 2 : node.x + 12,
+        y: node.y + 19, 'font-size': 11, 'font-weight': 700, fill: '#172B4D',
+        'text-anchor': node.kind === 'conclusion' ? 'middle' : 'start',
+      }}, g);
+      label.textContent = node.label;
+      const value = el('text', {{
+        x: node.kind === 'conclusion' ? node.x + CARD_W / 2 : node.x + 12,
+        y: node.y + 36, 'font-size': 11, fill: '#627D98',
+        'text-anchor': node.kind === 'conclusion' ? 'middle' : 'start',
+      }}, g);
+      value.textContent = node.value;
+      el('circle', {{ cx: node.x + CARD_W - 14, cy: node.y + CARD_H / 2, r: 8, fill: color }}, g);
+      const badge = el('text', {{
+        x: node.x + CARD_W - 14, y: node.y + CARD_H / 2 + 3.5, 'font-size': 9,
+        fill: '#fff', 'text-anchor': 'middle',
+      }}, g);
+      badge.textContent = node.risk;
+      g.addEventListener('pointerdown', function (event) {{
+        event.preventDefault();
+        const startX = event.clientX, startY = event.clientY;
+        const originX = node.x, originY = node.y;
+        function onMove(moveEvent) {{
+          node.x = Math.max(4, Math.min(width - CARD_W - 4, originX + moveEvent.clientX - startX));
+          node.y = Math.max(4, Math.min(height - CARD_H - 4, originY + moveEvent.clientY - startY));
+          drawEdges(); drawNodes();
+        }}
+        function onUp() {{
+          window.removeEventListener('pointermove', onMove);
+          window.removeEventListener('pointerup', onUp);
+        }}
+        window.addEventListener('pointermove', onMove);
+        window.addEventListener('pointerup', onUp);
+      }});
+    }});
+  }}
+
+  function render() {{
+    drawEdges(); drawNodes();
+  }}
+  render();
+  window.addEventListener('resize', render);
+}})();
+</script>
+"""
+    st.html(html)
 
 
 item, summary, validation = context_or_empty(
@@ -294,7 +384,7 @@ if item and summary:
                     st.caption("数据来源列的完整证据编号可在文档与证据页或审计回放查看。")
                 else:
                     st.info("暂无可注册的估值假设。")
-                st.markdown("##### 投资逻辑脆弱性（静态版）")
+                st.markdown("##### 投资逻辑脆弱性")
                 metrics = summary.get("key_metrics") or {}
                 freshness = next((check for check in (validation or {}).get("checks", []) if check.get("code") == "snapshot_freshness"), {})
                 fragility_rows = [
@@ -305,7 +395,6 @@ if item and summary:
                 ]
                 conclusion_risk = "高" if not allowed else ("中" if (validation or {}).get("warnings") else "低")
                 _fragility_svg(fragility_rows, conclusion_risk)
-                st.caption("静态简化版：假设卡片按风险等级汇聚到投资结论节点；交互拖拽版在二期提供。")
                 st.markdown("##### 跟踪计划")
                 with st.container(border=True):
                     plan = st.columns(4)
