@@ -48,9 +48,10 @@ def evidence_chip(evidence_id: str | None, source_label: str, *, page: str | Non
 
 
 def _short_evidence_id(evidence_id: str) -> str:
-    """E-XXX 样式短编号：对 fact_/calc_ 前缀 ID 做确定性短化，悬浮保留全量。"""
-    compact = evidence_id.replace("fact_", "F-").replace("calc_", "C-")
-    return compact if len(compact) <= 34 else compact[:31] + "…"
+    """E-XXXXXX 样式短编号：确定性派生，明面不出现原始 ID 形态；悬浮保留全量。"""
+    import hashlib
+
+    return "E-" + hashlib.md5(evidence_id.encode("utf-8")).hexdigest()[:6].upper()
 
 
 def status_chip(status: Any, *, label: str | None = None) -> None:
