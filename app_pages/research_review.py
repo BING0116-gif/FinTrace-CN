@@ -14,6 +14,7 @@ from services import research_loader as loader
 from src.cn.checker import DraftClaim, check_report
 from ui.chips import evidence_chip
 from ui.claim_passport import render
+from ui import pdf_viewer
 from ui.status import callout
 
 FINDING_LABELS = {
@@ -233,3 +234,19 @@ if item and summary:
                     detail=detail,
                 )
             st.caption("点击证据来源芯片展开完整字段；证据 ID 收纳在芯片悬浮提示与展开区内，审计回放页保留全量 ID。")
+
+    # P2-1：PDF 双栏高亮核查器（左 PDF / 右声明，点击高亮对应句子）
+    st.divider()
+    st.subheader("PDF 双栏高亮核查器")
+    pdf_bytes_map = st.session_state.get("task_document_bytes") or {}
+    if not pdf_bytes_map:
+        st.caption("上传 PDF 研报后（研究任务页 → 上传材料），这里会内嵌渲染 PDF 并高亮已核查声明。")
+    else:
+        selected_pdf = st.selectbox("选择 PDF 材料", list(pdf_bytes_map), key="review_pdf_choice")
+        highlight_claims = [
+            str(claim.get("statement") or claim.get("title") or "")
+            for claim in st.session_state.get("checker_claims", [])
+            if claim.get("statement") or claim.get("title")
+        ]
+        pdf_viewer.render(pdf_bytes_map[selected_pdf], highlight_claims, height=560)
+        pdf_viewer.disclaimer()
