@@ -7,6 +7,7 @@ from typing import Any, Callable
 import streamlit as st
 
 from services.session_state import go_to_evidence
+from ui.chips import evidence_chip
 from ui.status import badge, normalize
 
 
@@ -15,7 +16,9 @@ def metric(label: str, value: Any, *, period: str | None = None, unit: str | Non
         st.metric(label, "未覆盖" if value is None else value, delta=delta)
         st.caption(" · ".join(item for item in (period, unit) if item) or "期间和单位未记录")
         if evidence_id:
-            st.button(f"证据 {evidence_id}", key=f"evidence_link_{evidence_id}", on_click=go_to_evidence, args=(evidence_id,), icon=":material/arrow_forward:")
+            # 证据编号收进芯片悬浮与展开区；明面不再直出裸 ID（§4.2）。
+            evidence_chip(evidence_id, "证据来源", detail={"证据编号": evidence_id})
+            st.button("查看证据链", key=f"evidence_link_{evidence_id}", on_click=go_to_evidence, args=(evidence_id,), icon=":material/arrow_forward:")
 
 
 def workflow(steps: list[dict[str, Any]]) -> None:
