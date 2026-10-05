@@ -31,3 +31,63 @@ def cash_flow_trends(statements: list[dict[str, Any]]) -> None:
         st.info("经营活动现金流未覆盖。")
         return
     st.line_chart(pd.DataFrame(rows).set_index("期间"), width="stretch", height=280)
+
+
+def conclusion_health_donut(verified: int, warning: int, blocked: int, *, key: str, total_label: str = "结论总数") -> None:
+    """结论健康度三扇区 donut：可验证 / 需进一步核查 / 存在冲突受限。"""
+    import plotly.graph_objects as go
+
+    from ui.theme import TOKENS
+
+    total = verified + warning + blocked
+    if total == 0:
+        st.info("暂无可聚合的验证状态。")
+        return
+    fig = go.Figure(go.Pie(
+        values=[verified, warning, blocked],
+        labels=["可验证", "需进一步核查", "存在冲突受限"],
+        hole=0.68,
+        marker=dict(colors=[TOKENS["green"], TOKENS["amber"], TOKENS["coral"]]),
+        textinfo="value",
+        texttemplate="%{value}",
+        hovertemplate="%{label}：%{value}<extra></extra>",
+        sort=False,
+        direction="clockwise",
+    ))
+    fig.update_layout(
+        height=220, margin=dict(l=8, r=8, t=8, b=8),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        showlegend=True, legend=dict(orientation="h", y=-0.12, font=dict(size=11)),
+        annotations=[dict(
+            text=f"<b>{total}</b><br><span style='font-size:11px;color:#627D98'>{total_label}</span>",
+            x=0.5, y=0.5, showarrow=False, font=dict(size=22),
+        )],
+    )
+    st.plotly_chart(fig, width="stretch", key=key, config={"displayModeBar": False})
+
+
+def mini_bar(series: dict[str, float | None], *, key: str, color: str | None = None) -> None:
+    """近 5 期迷你柱状图：卡片内嵌，弱化坐标轴。"""
+    import plotly.graph_objects as go
+
+    from ui.theme import TOKENS
+
+    items = [(period, value) for period, value in series.items() if value is not None]
+    if not items:
+        st.caption("近 5 期数据未覆盖。")
+        return
+    periods = [item[0] for item in items]
+    values = [item[1] for item in items]
+    fig = go.Figure(go.Bar(
+        x=periods, y=values,
+        marker_color=color or TOKENS["blue"],
+        hovertemplate="期间: %{x}<br>数值: %{y:,.2f}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=110, margin=dict(l=4, r=4, t=4, b=4),
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        xaxis=dict(showgrid=False, tickfont=dict(size=9), showline=False),
+        yaxis=dict(visible=False, showgrid=False),
+        showlegend=False,
+    )
+    st.plotly_chart(fig, width="stretch", key=key, config={"displayModeBar": False})
