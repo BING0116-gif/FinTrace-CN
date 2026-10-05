@@ -1,15 +1,17 @@
-"""Shared frame, context bar and empty/error states."""
+"""Shared frame, card grid and empty/error states.
+
+顶部上下文条已迁移到 ui/context_bar.py（全站共用）。
+"""
 
 from __future__ import annotations
 
-import json
+from collections.abc import Callable
 from typing import Any
 
 import streamlit as st
 
 from services import research_loader as loader
 from services.session_state import set_snapshot
-from ui.status import badge, normalize
 
 
 def page_title(title: str, description: str, *, eyebrow: str = "FinTrace-CN") -> None:
@@ -18,25 +20,20 @@ def page_title(title: str, description: str, *, eyebrow: str = "FinTrace-CN") ->
     st.caption(description)
 
 
-def context_bar(item: dict[str, Any] | None, summary: dict[str, Any] | None, validation: dict[str, Any] | None) -> None:
-    if not item or not summary:
-        st.info("尚未选择研究快照。请从左侧选择公司，或前往研究任务创建研究。", icon=":material/info:")
+def card_grid(cols: int, cards: list[Callable[[], None]], *, gap: int = 12) -> None:
+    """统一卡片网格：12px 间距、卡片内边距 16px（由主题层控制）。
+
+    cards 是零参渲染函数列表，按行填充 cols 列网格。
+    """
+    if not cards:
         return
-    status = normalize((validation or {}).get("status"))
-    profile = summary.get("profile") or {}
-    trace = loader.trace(item["id"])
-    with st.container(border=True):
-        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
-            st.markdown(
-                f"**{profile.get('name') or item.get('name') or '未命名公司'}** "
-                f"`{summary.get('symbol', item.get('symbol', '—'))}` · "
-                f"研究截至 `{summary.get('research_as_of', item.get('research_as_of', '—'))}` · "
-                f"Provider `{summary.get('provider', '—')}` · Run `{trace.get('task_id') or '未记录'}` · 模式 `离线可复现`"
-            )
-            badge(status)
-            st.page_link("app_pages/research_tasks.py", label="新建研究", icon=":material/add:")
-            payload = {"snapshot": summary, "validation": validation, "evidence": loader.evidence(item["id"])}
-            st.download_button("Evidence Pack", json.dumps(payload, ensure_ascii=False, indent=2), f"{summary.get('symbol', 'research')}_evidence_pack.json", "application/json", icon=":material/download:")
+    for start in range(0, len(cards), cols):
+        row = cards[start:start + cols]
+        columns = st.columns(cols, gap="small")
+        for index, card in enumerate(row):
+            with columns[index]:
+                with st.container(border=True):
+                    card()
 
 
 def sidebar_context(catalog: list[dict[str, Any]]) -> None:
